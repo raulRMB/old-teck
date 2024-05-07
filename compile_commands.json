@@ -1,0 +1,38 @@
+[
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/dev/teck/out/_deps/entt-src -IC:/dev/teck/out/_deps/glm-src -IC:/dev/teck/out/_deps/tiny_gltf-src -o CMakeFiles\\tech.dir\\src\\core\\engine.cpp.obj -c C:\\dev\\teck\\src\\core\\engine.cpp",
+  "file": "C:\\dev\\teck\\src\\core\\engine.cpp",
+  "output": "CMakeFiles\\tech.dir\\src\\core\\engine.cpp.obj"
+},
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/dev/teck/out/_deps/entt-src -IC:/dev/teck/out/_deps/glm-src -IC:/dev/teck/out/_deps/tiny_gltf-src -o CMakeFiles\\tech.dir\\src\\core\\renderer.cpp.obj -c C:\\dev\\teck\\src\\core\\renderer.cpp",
+  "file": "C:\\dev\\teck\\src\\core\\renderer.cpp",
+  "output": "CMakeFiles\\tech.dir\\src\\core\\renderer.cpp.obj"
+},
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/dev/teck/out/_deps/entt-src -IC:/dev/teck/out/_deps/glm-src -IC:/dev/teck/out/_deps/tiny_gltf-src -o CMakeFiles\\tech.dir\\src\\core\\window.cpp.obj -c C:\\dev\\teck\\src\\core\\window.cpp",
+  "file": "C:\\dev\\teck\\src\\core\\window.cpp",
+  "output": "CMakeFiles\\tech.dir\\src\\core\\window.cpp.obj"
+},
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -IC:/dev/teck/out/_deps/entt-src -IC:/dev/teck/out/_deps/glm-src -IC:/dev/teck/out/_deps/tiny_gltf-src -o CMakeFiles\\tech.dir\\src\\main.cpp.obj -c C:\\dev\\teck\\src\\main.cpp",
+  "file": "C:\\dev\\teck\\src\\main.cpp",
+  "output": "CMakeFiles\\tech.dir\\src\\main.cpp.obj"
+},
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -std=c++11 -o _deps\\tiny_gltf-build\\CMakeFiles\\loader_example.dir\\loader_example.cc.obj -c C:\\dev\\teck\\out\\_deps\\tiny_gltf-src\\loader_example.cc",
+  "file": "C:\\dev\\teck\\out\\_deps\\tiny_gltf-src\\loader_example.cc",
+  "output": "_deps\\tiny_gltf-build\\CMakeFiles\\loader_example.dir\\loader_example.cc.obj"
+},
+{
+  "directory": "C:/dev/teck/out",
+  "command": "C:\\Strawberry\\c\\bin\\c++.exe -std=c++11 -o _deps\\tiny_gltf-build\\CMakeFiles\\tinygltf.dir\\tiny_gltf.cc.obj -c C:\\dev\\teck\\out\\_deps\\tiny_gltf-src\\tiny_gltf.cc",
+  "file": "C:\\dev\\teck\\out\\_deps\\tiny_gltf-src\\tiny_gltf.cc",
+  "output": "_deps\\tiny_gltf-build\\CMakeFiles\\tinygltf.dir\\tiny_gltf.cc.obj"
+}
+]

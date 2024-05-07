@@ -1,4 +1,6 @@
-int main() 
+#include "core/engine.h"
+
+int main()
 {
-  return 0;
+  return tkEngine::Run();
 }

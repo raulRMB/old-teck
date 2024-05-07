@@ -8,6 +8,8 @@ private:
   tkRenderer();
   ~tkRenderer();
 
+  friend class tkEngine;
+
 private:
 
 public:

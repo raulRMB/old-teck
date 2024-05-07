@@ -2,6 +2,7 @@
 #define TK_DEFINES_H
 
 #include <cstdint>
+#include <vector>
 #include "glm/glm.hpp"
 #include "glm/ext/quaternion_common.hpp"
 
@@ -26,6 +27,9 @@ using m3 = glm::mat3;
 using m4 = glm::mat4;
 
 using quat = glm::quat;
+
+template<typename T>
+using tkDArray = std::vector<T>;
 
 #define TK_SUCCESS 0
 #define TK_FAILURE 1

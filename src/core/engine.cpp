@@ -1,15 +1,17 @@
 #include "engine.h"
 #include "def.h"
-#include <string>
-#include <iostream>
+#include "sys/input.h"
 
 tkEngine& tkEngine::Get()
 {
     static tkEngine e;
-    return e;      
+    return e;
 }
 
-tkEngine::tkEngine()
+tkEngine::tkEngine() : 
+    bRunning(false),
+    Window(tkWindow()),
+    Renderer(tkRenderer())
 {
     
 }
@@ -19,31 +21,53 @@ tkEngine::~tkEngine()
     
 }
 
+i32 tkEngine::Create()
+{
+    tkEngine::Get();
+    return TK_SUCCESS;
+}
+
+i32 tkEngine::Init()
+{
+    bRunning = true;
+    
+    return TK_SUCCESS;
+}
+
 i32 tkEngine::Run()
 {
-    tkEngine& engine = tkEngine::Get();
+    TK_ATTEMPT(tkEngine::Create());
+    
+    TK_ATTEMPT(tkEngine::Get().Init());
+    TK_ATTEMPT(tkEngine::Get().MainLoop());
 
-    TK_ATTEMPT(engine.MainLoop());    
+    return TK_SUCCESS;
+}
 
-    return TK_EXIT_SUCCESS;
+void tkEngine::PollEvents()
+{
+    Window.PollEvents();
 }
 
 i32 tkEngine::MainLoop()
-{
+{    
     while(!ShouldExit())
     {
-        std::string str;
-        std::cin >> str;
-
-        if (str == "exit")
-        {
-                   
-        }
+        PollEvents();
     }
     return TK_EXIT_SUCCESS;
 }
 
 bool tkEngine::ShouldExit()
-{
+{   
+    if (Window.ShouldClose())
+    {
+        return true;    
+    }
+    
+    for(tsInput& system : InputSystems)
+    {
+        bRunning |= system.HandleInput();
+    }
     return !bRunning;
 }

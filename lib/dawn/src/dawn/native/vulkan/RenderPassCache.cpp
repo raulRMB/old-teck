@@ -44,6 +44,10 @@ VkAttachmentLoadOp VulkanAttachmentLoadOp(wgpu::LoadOp op) {
             return VK_ATTACHMENT_LOAD_OP_LOAD;
         case wgpu::LoadOp::Clear:
             return VK_ATTACHMENT_LOAD_OP_CLEAR;
+        case wgpu::LoadOp::ExpandResolveTexture:
+            // TODO(dawn:1710): Implement this on vulkan.
+            DAWN_UNREACHABLE();
+            break;
         case wgpu::LoadOp::Undefined:
             DAWN_UNREACHABLE();
             break;
@@ -134,10 +138,8 @@ ResultOrError<VkRenderPass> RenderPassCache::CreateRenderPassForQuery(
     // Precompute them as they must be pointer-chained in VkSubpassDescription.
     // Note that both colorAttachmentRefs and resolveAttachmentRefs can be sparse with holes
     // filled with VK_ATTACHMENT_UNUSED.
-    ityp::array<ColorAttachmentIndex, VkAttachmentReference, kMaxColorAttachments>
-        colorAttachmentRefs;
-    ityp::array<ColorAttachmentIndex, VkAttachmentReference, kMaxColorAttachments>
-        resolveAttachmentRefs;
+    PerColorAttachment<VkAttachmentReference> colorAttachmentRefs;
+    PerColorAttachment<VkAttachmentReference> resolveAttachmentRefs;
     VkAttachmentReference depthStencilAttachmentRef;
 
     for (auto i : Range(kMaxColorAttachmentsTyped)) {

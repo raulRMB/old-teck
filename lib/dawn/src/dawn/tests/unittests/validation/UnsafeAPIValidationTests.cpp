@@ -42,16 +42,10 @@ class UnsafeAPIValidationTest : public ValidationTest {
   protected:
     // UnsafeAPIValidationTest create the device with the AllowUnsafeAPIs toggle explicitly
     // disabled, which overrides the inheritance.
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
+    std::vector<const char*> GetDisabledToggles() override {
         // Disable the AllowUnsafeAPIs toggles in device toggles descriptor to override the
         // inheritance and create a device disallowing unsafe apis.
-        wgpu::DawnTogglesDescriptor deviceTogglesDesc;
-        descriptor.nextInChain = &deviceTogglesDesc;
-        const char* toggle = "allow_unsafe_apis";
-        deviceTogglesDesc.disabledToggles = &toggle;
-        deviceTogglesDesc.disabledToggleCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+        return {"allow_unsafe_apis"};
     }
 };
 
@@ -70,84 +64,11 @@ TEST_F(UnsafeAPIValidationTest, chromium_disable_uniformity_analysis) {
     )"));
 }
 
-// Check that separate depth-stencil readonlyness is validated as unsafe for render passes.
-TEST_F(UnsafeAPIValidationTest, SeparateRenderPassDepthStencilReadOnlyness) {
-    wgpu::TextureDescriptor tDesc;
-    tDesc.size = {1, 1};
-    tDesc.format = wgpu::TextureFormat::Depth24PlusStencil8;
-    tDesc.usage = wgpu::TextureUsage::RenderAttachment;
-    wgpu::Texture t = device.CreateTexture(&tDesc);
-
-    // Control case: both readonly is valid.
-    {
-        wgpu::RenderPassDepthStencilAttachment ds;
-        ds.view = t.CreateView();
-        ds.depthReadOnly = true;
-        ds.stencilReadOnly = true;
-
-        wgpu::RenderPassDescriptor rp;
-        rp.colorAttachmentCount = 0;
-        rp.depthStencilAttachment = &ds;
-
-        wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-        wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rp);
-        pass.End();
-        encoder.Finish();
-    }
-
-    // Error case: only one readonly is invalid.
-    {
-        wgpu::RenderPassDepthStencilAttachment ds;
-        ds.view = t.CreateView();
-        ds.depthReadOnly = true;
-        ds.stencilReadOnly = false;
-        ds.stencilLoadOp = wgpu::LoadOp::Load;
-        ds.stencilStoreOp = wgpu::StoreOp::Store;
-
-        wgpu::RenderPassDescriptor rp;
-        rp.colorAttachmentCount = 0;
-        rp.depthStencilAttachment = &ds;
-
-        wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-        wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rp);
-        pass.End();
-        ASSERT_DEVICE_ERROR(encoder.Finish());
-    }
-}
-
-// Check that separate depth-stencil readonlyness is validated as unsafe for render bundles.
-TEST_F(UnsafeAPIValidationTest, SeparateRenderBundleDepthStencilReadOnlyness) {
-    utils::ComboRenderBundleEncoderDescriptor desc = {};
-    desc.depthStencilFormat = wgpu::TextureFormat::Depth24PlusStencil8;
-
-    // Control case: both readonly is valid.
-    {
-        desc.depthReadOnly = true;
-        desc.stencilReadOnly = true;
-        device.CreateRenderBundleEncoder(&desc);
-    }
-
-    // Error case: only one readonly is invalid.
-    {
-        desc.depthReadOnly = true;
-        desc.stencilReadOnly = false;
-        ASSERT_DEVICE_ERROR(device.CreateRenderBundleEncoder(&desc));
-    }
-}
-
 class TimestampQueryUnsafeAPIValidationTest : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::DawnTogglesDescriptor deviceTogglesDesc;
-        descriptor.nextInChain = &deviceTogglesDesc;
-        const char* toggle = "allow_unsafe_apis";
-        deviceTogglesDesc.disabledToggles = &toggle;
-        deviceTogglesDesc.disabledToggleCount = 1;
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::TimestampQuery};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<const char*> GetDisabledToggles() override { return {"allow_unsafe_apis"}; }
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::TimestampQuery};
     }
 };
 

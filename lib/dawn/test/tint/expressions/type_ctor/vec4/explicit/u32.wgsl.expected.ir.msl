@@ -1,6 +1,3 @@
-SKIP: FAILED
-
 #include <metal_stdlib>
 using namespace metal;
 
-thread uint4 v = uint4(0u, 1u, 2u, 3u);

@@ -1,9 +1,8 @@
-SKIP: FAILED
-
 #include <metal_stdlib>
 using namespace metal;
 
-void tint_symbol() {
+kernel void tint_symbol() {
   int i = 123;
-  thread int* const p = i;
+  thread int* const p = (&i);
+  int const u = ((*p) + 1);
 }

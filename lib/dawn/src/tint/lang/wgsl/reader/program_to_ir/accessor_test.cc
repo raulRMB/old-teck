@@ -51,15 +51,69 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraySingleIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, array<u32, 3>, read_write> = var
     %3:ptr<function, u32, read_write> = access %a, 2u
     %4:u32 = load %3
     %b:u32 = let %4
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraySingleIndex_ViaDerefPointerIndex) {
+    // var a: array<u32, 3>
+    // let p = &a;
+    // let b = (*p)[2]
+
+    auto* a = Var("a", ty.array<u32, 3>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(Deref(p), 2_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, array<u32, 3>, read_write> = var
+    %p:ptr<function, array<u32, 3>, read_write> = let %a
+    %4:ptr<function, u32, read_write> = access %p, 2u
+    %5:u32 = load %4
+    %b:u32 = let %5
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraySingleIndex_ViaPointerIndex) {
+    // var a: array<u32, 3>
+    // let p = &a;
+    // let b = p[2]
+
+    auto* a = Var("a", ty.array<u32, 3>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(p, 2_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, array<u32, 3>, read_write> = var
+    %p:ptr<function, array<u32, 3>, read_write> = let %a
+    %4:ptr<function, u32, read_write> = access %p, 2u
+    %5:u32 = load %4
+    %b:u32 = let %5
     ret
   }
 }
@@ -78,11 +132,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Multiple) {
     WrapInFunction(Decl(a), expr, expr2);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:vec3<u32> = let vec3<u32>(0u)
     %3:u32 = access %a, 2u
     %b:u32 = let %3
@@ -103,14 +157,66 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorSingleIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, vec3<u32>, read_write> = var
     %3:u32 = load_vector_element %a, 2u
     %b:u32 = let %3
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorSingleIndex_ViaDerefPointerIndex) {
+    // var a: vec3<u32>
+    // let p = &a;
+    // let b = (*p)[2]
+
+    auto* a = Var("a", ty.vec3<u32>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(Deref(p), 2_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, vec3<u32>, read_write> = var
+    %p:ptr<function, vec3<u32>, read_write> = let %a
+    %4:u32 = load_vector_element %p, 2u
+    %b:u32 = let %4
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorSingleIndex_ViaPointerIndex) {
+    // var a: vec3<u32>
+    // let p = &a;
+    // let b = p[2]
+
+    auto* a = Var("a", ty.vec3<u32>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(p, 2_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, vec3<u32>, read_write> = var
+    %p:ptr<function, vec3<u32>, read_write> = let %a
+    %4:u32 = load_vector_element %p, 2u
+    %b:u32 = let %4
     ret
   }
 }
@@ -126,15 +232,69 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraysMultiIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, array<array<f32, 4>, 3>, read_write> = var
     %3:ptr<function, f32, read_write> = access %a, 2u, 3u
     %4:f32 = load %3
     %b:f32 = let %4
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraysMultiIndex_ViaDerefPointerIndex) {
+    // var a: array<array<f32, 4>, 3>
+    // let p = &a;
+    // let b = (*p)[2][3]
+
+    auto* a = Var("a", ty.array<array<f32, 4>, 3>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(IndexAccessor(Deref(p), 2_u), 3_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, array<array<f32, 4>, 3>, read_write> = var
+    %p:ptr<function, array<array<f32, 4>, 3>, read_write> = let %a
+    %4:ptr<function, f32, read_write> = access %p, 2u, 3u
+    %5:f32 = load %4
+    %b:f32 = let %5
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_ArraysMultiIndex_ViaPointerIndex) {
+    // var a: array<array<f32, 4>, 3>
+    // let p = &a;
+    // let b = p[2][3]
+
+    auto* a = Var("a", ty.array<array<f32, 4>, 3>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", IndexAccessor(IndexAccessor(p, 2_u), 3_u)));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, array<array<f32, 4>, 3>, read_write> = var
+    %p:ptr<function, array<array<f32, 4>, 3>, read_write> = let %a
+    %4:ptr<function, f32, read_write> = access %p, 2u, 3u
+    %5:f32 = load %4
+    %b:f32 = let %5
     ret
   }
 }
@@ -150,11 +310,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_MatrixMultiIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, mat3x4<f32>, read_write> = var
     %3:ptr<function, vec4<f32>, read_write> = access %a, 2u
     %4:f32 = load_vector_element %3, 3u
@@ -178,19 +338,89 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_SingleMember) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(MyStruct = struct @align(4) {
   foo:i32 @offset(0)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, MyStruct, read_write> = var
     %3:ptr<function, i32, read_write> = access %a, 0u
     %4:i32 = load %3
     %b:i32 = let %4
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_SingleMember_ViaDerefPointerIndex) {
+    // struct MyStruct { foo: i32 }
+    // var a: MyStruct;
+    // let p = &a;
+    // let b = (*p).foo
+
+    auto* s = Structure("MyStruct", Vector{
+                                        Member("foo", ty.i32()),
+                                    });
+    auto* a = Var("a", ty.Of(s), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", MemberAccessor(Deref(p), "foo")));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(MyStruct = struct @align(4) {
+  foo:i32 @offset(0)
+}
+
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, MyStruct, read_write> = var
+    %p:ptr<function, MyStruct, read_write> = let %a
+    %4:ptr<function, i32, read_write> = access %p, 0u
+    %5:i32 = load %4
+    %b:i32 = let %5
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_SingleMember_ViaPointerIndex) {
+    // struct MyStruct { foo: i32 }
+    // var a: MyStruct;
+    // let p = &a;
+    // let b = p.foo
+
+    auto* s = Structure("MyStruct", Vector{
+                                        Member("foo", ty.i32()),
+                                    });
+    auto* a = Var("a", ty.Of(s), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", MemberAccessor(p, "foo")));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(MyStruct = struct @align(4) {
+  foo:i32 @offset(0)
+}
+
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, MyStruct, read_write> = var
+    %p:ptr<function, MyStruct, read_write> = let %a
+    %4:ptr<function, i32, read_write> = access %p, 0u
+    %5:i32 = load %4
+    %b:i32 = let %5
     ret
   }
 }
@@ -215,9 +445,9 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_MultiMember) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(Inner = struct @align(4) {
   bar:f32 @offset(0)
 }
@@ -227,8 +457,8 @@ Outer = struct @align(4) {
   foo:Inner @offset(4)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, Outer, read_write> = var
     %3:ptr<function, f32, read_write> = access %a, 1u, 0u
     %4:f32 = load %3
@@ -261,9 +491,9 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_Mixed) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(Inner = struct @align(16) {
   b:i32 @offset(0)
   c:f32 @offset(4)
@@ -275,8 +505,8 @@ Outer = struct @align(16) {
   foo:array<Inner, 4> @offset(16)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, array<Outer, 4>, read_write> = var
     %3:ptr<function, vec4<f32>, read_write> = access %a, 0u, 1u, 1u, 2u
     %4:vec4<f32> = load %3
@@ -296,11 +526,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_AssignmentLHS) {
     WrapInFunction(Decl(a), assign);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, array<u32, 4>, read_write> = var
     %3:ptr<function, u32, read_write> = access %a, 2u
     store %3, 0u
@@ -319,14 +549,66 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorElementSwizzle) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, vec2<f32>, read_write> = var
     %3:f32 = load_vector_element %a, 1u
     %b:f32 = let %3
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorElementSwizzle_ViaDerefPointerIndex) {
+    // var a: vec2<f32>
+    // let p = &a;
+    // let b = (*p).y
+
+    auto* a = Var("a", ty.vec2<f32>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", MemberAccessor(Deref(p), "y")));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, vec2<f32>, read_write> = var
+    %p:ptr<function, vec2<f32>, read_write> = let %a
+    %4:f32 = load_vector_element %p, 1u
+    %b:f32 = let %4
+    ret
+  }
+}
+)");
+}
+
+TEST_F(ProgramToIRAccessorTest, Accessor_Var_VectorElementSwizzle_ViaPointerIndex) {
+    // var a: vec2<f32>
+    // let p = &a;
+    // let b = p.y
+
+    auto* a = Var("a", ty.vec2<f32>(), core::AddressSpace::kFunction);
+    auto* p = Let("p", AddressOf(a));
+    auto* expr = Decl(Let("b", MemberAccessor(p, "y")));
+    WrapInFunction(Decl(a), Decl(p), expr);
+
+    auto m = Build();
+    ASSERT_EQ(m, Success);
+
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
+    %a:ptr<function, vec2<f32>, read_write> = var
+    %p:ptr<function, vec2<f32>, read_write> = let %a
+    %4:f32 = load_vector_element %p, 1u
+    %b:f32 = let %4
     ret
   }
 }
@@ -342,11 +624,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_MultiElementSwizzle) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, vec3<f32>, read_write> = var
     %3:vec3<f32> = load %a
     %4:vec4<f32> = swizzle %3, zyxz
@@ -366,11 +648,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_MultiElementSwizzleOfSwizzle) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, vec3<f32>, read_write> = var
     %3:vec3<f32> = load %a
     %4:vec3<f32> = swizzle %3, zyx
@@ -398,16 +680,16 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Var_MultiElementSwizzle_MiddleOfChain) 
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(MyStruct = struct @align(16) {
   a:i32 @offset(0)
   foo:vec4<f32> @offset(16)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:ptr<function, MyStruct, read_write> = var
     %3:ptr<function, vec4<f32>, read_write> = access %a, 1u
     %4:vec4<f32> = load %3
@@ -429,11 +711,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_SingleIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:vec3<u32> = let vec3<u32>(0u)
     %3:u32 = access %a, 2u
     %b:u32 = let %3
@@ -452,11 +734,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_MultiIndex) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:mat3x4<f32> = let mat3x4<f32>(vec4<f32>(0.0f))
     %3:f32 = access %a, 2u, 3u
     %b:f32 = let %3
@@ -479,15 +761,15 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_SingleMember) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(MyStruct = struct @align(4) {
   foo:i32 @offset(0)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:MyStruct = let MyStruct(0i)
     %3:i32 = access %a, 0u
     %b:i32 = let %3
@@ -515,9 +797,9 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_MultiMember) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(Inner = struct @align(4) {
   bar:f32 @offset(0)
 }
@@ -527,8 +809,8 @@ Outer = struct @align(4) {
   foo:Inner @offset(4)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:Outer = let Outer(0i, Inner(0.0f))
     %3:f32 = access %a, 1u, 0u
     %b:f32 = let %3
@@ -560,9 +842,9 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_Mixed) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(Inner = struct @align(16) {
   b:i32 @offset(0)
   c:f32 @offset(4)
@@ -574,8 +856,8 @@ Outer = struct @align(16) {
   foo:array<Inner, 4> @offset(16)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:array<Outer, 4> = let array<Outer, 4>(Outer(0i, array<Inner, 4>(Inner(0i, 0.0f, vec4<f32>(0.0f)))))
     %3:vec4<f32> = access %a, 0u, 1u, 1u, 2u
     %b:vec4<f32> = let %3
@@ -594,11 +876,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_SingleElement) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:vec2<f32> = let vec2<f32>(0.0f)
     %3:f32 = access %a, 1u
     %b:f32 = let %3
@@ -617,11 +899,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_MultiElementSwizzle) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:vec3<f32> = let vec3<f32>(0.0f)
     %3:vec4<f32> = swizzle %a, zyxz
     %b:vec4<f32> = let %3
@@ -640,11 +922,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_MultiElementSwizzleOfSwizzle) {
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:vec3<f32> = let vec3<f32>(0.0f)
     %3:vec3<f32> = swizzle %a, zyx
     %4:vec2<f32> = swizzle %3, yy
@@ -671,16 +953,16 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Let_MultiElementSwizzle_MiddleOfChain) 
     WrapInFunction(Decl(a), expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
               R"(MyStruct = struct @align(16) {
   a:i32 @offset(0)
   foo:vec4<f32> @offset(16)
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %a:MyStruct = let MyStruct(0i, vec4<f32>(0.0f))
     %3:vec4<f32> = access %a, 1u
     %4:vec3<f32> = swizzle %3, zyx
@@ -704,11 +986,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Const_AbstractVectorWithIndex) {
     WrapInFunction(v, i, b);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %i:i32 = let 1i
     %3:i32 = access vec3<i32>(1i, 2i, 3i), %i
     %b:ptr<function, i32, read_write> = var, %3
@@ -729,11 +1011,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Const_AbstractVectorWithSwizzleAndIndex
     WrapInFunction(v, i, b);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %i:i32 = let 1i
     %3:i32 = access vec2<i32>(1i, 2i), %i
     %b:ptr<function, i32, read_write> = var, %3
@@ -754,11 +1036,11 @@ TEST_F(ProgramToIRAccessorTest, Accessor_Const_ExpressionIndex) {
     WrapInFunction(v, i, b);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()),
-              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+    EXPECT_EQ(Disassemble(m.Get()).Plain(),
+              R"(%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B1: {
     %i:i32 = let 1i
     %3:i32 = add %i, 2i
     %4:i32 = sub %3, 3i

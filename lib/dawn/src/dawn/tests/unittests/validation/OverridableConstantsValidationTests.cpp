@@ -37,26 +37,8 @@ namespace {
 
 class ComputePipelineOverridableConstantsValidationTest : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor deviceDescriptor) override {
-        std::vector<const char*> enabledToggles;
-        std::vector<const char*> disabledToggles;
-
-        enabledToggles.push_back("allow_unsafe_apis");
-
-        wgpu::DawnTogglesDescriptor deviceTogglesDesc;
-        deviceTogglesDesc.enabledToggles = enabledToggles.data();
-        deviceTogglesDesc.enabledToggleCount = enabledToggles.size();
-        deviceTogglesDesc.disabledToggles = disabledToggles.data();
-        deviceTogglesDesc.disabledToggleCount = disabledToggles.size();
-
-        const wgpu::FeatureName requiredFeatures[] = {wgpu::FeatureName::ShaderF16};
-
-        deviceDescriptor.nextInChain = &deviceTogglesDesc;
-        deviceDescriptor.requiredFeatures = requiredFeatures;
-        deviceDescriptor.requiredFeatureCount = 1;
-
-        return dawnAdapter.CreateDevice(&deviceDescriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::ShaderF16};
     }
 
     void SetUpShadersWithDefaultValueConstants() {
@@ -138,7 +120,6 @@ override c12: f16 = 0.0h;            // default override
     void TestCreatePipeline(const std::vector<wgpu::ConstantEntry>& constants) {
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.compute.module = computeModule;
-        csDesc.compute.entryPoint = "main";
         csDesc.compute.constants = constants.data();
         csDesc.compute.constantCount = constants.size();
         wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&csDesc);

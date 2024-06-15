@@ -36,6 +36,8 @@ TINT_INSTANTIATE_TYPEINFO(tint::core::ir::If);
 
 namespace tint::core::ir {
 
+If::If() = default;
+
 If::If(Value* cond, ir::Block* t, ir::Block* f) : true_(t), false_(f) {
     TINT_ASSERT(true_);
     TINT_ASSERT(false_);
@@ -61,12 +63,21 @@ void If::ForeachBlock(const std::function<void(ir::Block*)>& cb) {
     }
 }
 
+void If::ForeachBlock(const std::function<void(const ir::Block*)>& cb) const {
+    if (true_) {
+        cb(true_);
+    }
+    if (false_) {
+        cb(false_);
+    }
+}
+
 If* If::Clone(CloneContext& ctx) {
     auto* cond = ctx.Remap(Condition());
     auto* new_true = ctx.ir.blocks.Create<ir::Block>();
     auto* new_false = ctx.ir.blocks.Create<ir::Block>();
 
-    auto* new_if = ctx.ir.instructions.Create<If>(cond, new_true, new_false);
+    auto* new_if = ctx.ir.allocators.instructions.Create<If>(cond, new_true, new_false);
     ctx.Replace(this, new_if);
 
     true_->CloneInto(ctx, new_true);
@@ -75,6 +86,26 @@ If* If::Clone(CloneContext& ctx) {
     new_if->SetResults(ctx.Clone(results_));
 
     return new_if;
+}
+
+void If::SetTrue(ir::Block* block) {
+    if (true_ && true_->Parent() == this) {
+        true_->SetParent(nullptr);
+    }
+    true_ = block;
+    if (block) {
+        block->SetParent(this);
+    }
+}
+
+void If::SetFalse(ir::Block* block) {
+    if (false_ && false_->Parent() == this) {
+        false_->SetParent(nullptr);
+    }
+    false_ = block;
+    if (block) {
+        block->SetParent(this);
+    }
 }
 
 }  // namespace tint::core::ir

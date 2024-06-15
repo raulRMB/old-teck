@@ -12,6 +12,7 @@ private:
     ~tkWindow();
 
     friend class tkEngine;
+    friend class tkRenderer;
 
 private:
     void PollEvents();

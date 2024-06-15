@@ -1,9 +1,15 @@
 #include "window.h"
+#include "GLFW/glfw3.h"
+#include "def.h"
 
 tkWindow::tkWindow()
 {
   glfwInit();
-  Window = glfwCreateWindow(400, 400,  "Tech 0", nullptr, nullptr);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+  glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
+  Window = glfwCreateWindow(kWindowWidth, kWindowHeight,  "Tech 0", nullptr, nullptr);
+  glfwMakeContextCurrent(Window);
+  glfwSwapInterval(0);
 }
 
 tkWindow::~tkWindow()

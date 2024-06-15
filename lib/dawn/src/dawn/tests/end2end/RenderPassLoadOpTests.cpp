@@ -682,6 +682,9 @@ TEST_P(RenderPassLoadOpTests, LoadOpClearWithBig32BitIntegralValuesOnMultipleCol
 // Test using LoadOp::Clear with different big unsigned integers as clearValues and LoadOp::Load on
 // the other color attachments in one render pass encoder works correctly.
 TEST_P(RenderPassLoadOpTests, MixedUseOfLoadOpLoadAndLoadOpClearWithBigIntegerValues) {
+    // TODO(crbug.com/dawn/2295): diagnose this failure on Pixel 4 OpenGLES
+    DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsQualcomm());
+
     constexpr int32_t kMaxUInt32RepresentableInFloat = 1 << std::numeric_limits<float>::digits;
 
     wgpu::TextureDescriptor textureDescriptor = {};
@@ -749,6 +752,7 @@ TEST_P(RenderPassLoadOpTests, MixedUseOfLoadOpLoadAndLoadOpClearWithBigIntegerVa
 
 DAWN_INSTANTIATE_TEST(RenderPassLoadOpTests,
                       D3D11Backend(),
+                      D3D11Backend({"clear_color_with_draw"}),
                       D3D12Backend(),
                       MetalBackend(),
                       OpenGLBackend(),

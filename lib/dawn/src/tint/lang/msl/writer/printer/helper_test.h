@@ -34,6 +34,7 @@
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/msl/validate/validate.h"
 #include "src/tint/lang/msl/writer/printer/printer.h"
 #include "src/tint/lang/msl/writer/raise/raise.h"
 
@@ -80,17 +81,25 @@ class MslPrinterTestHelperBase : public BASE {
     /// Run the writer on the IR module and validate the result.
     /// @returns true if generation and validation succeeded
     bool Generate() {
-        if (auto raised = raise::Raise(mod, {}); !raised) {
-            err_ = raised.Failure().reason.str();
+        if (auto raised = Raise(mod, {}); raised != Success) {
+            err_ = raised.Failure().reason.Str();
             return false;
         }
 
         auto result = Print(mod);
-        if (!result) {
-            err_ = result.Failure().reason.str();
+        if (result != Success) {
+            err_ = result.Failure().reason.Str();
             return false;
         }
         output_ = result.Get();
+
+#if TINT_BUILD_IS_MAC
+        auto msl_validation = validate::ValidateUsingMetal(output_, validate::MslVersion::kMsl_2_3);
+        if (msl_validation.failed) {
+            err_ = msl_validation.output;
+            return false;
+        }
+#endif
 
         return true;
     }

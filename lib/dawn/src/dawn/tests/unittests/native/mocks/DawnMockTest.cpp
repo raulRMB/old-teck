@@ -27,6 +27,8 @@
 
 #include "dawn/tests/unittests/native/mocks/DawnMockTest.h"
 
+#include <utility>
+
 #include "dawn/dawn_proc.h"
 
 namespace dawn::native {
@@ -34,13 +36,23 @@ namespace dawn::native {
 DawnMockTest::DawnMockTest() {
     dawnProcSetProcs(&dawn::native::GetProcs());
 
-    mDeviceMock = new ::testing::NiceMock<DeviceMock>();
-    device = wgpu::Device::Acquire(ToAPI(mDeviceMock));
+    auto deviceMock = AcquireRef(new ::testing::NiceMock<DeviceMock>());
+    mDeviceMock = deviceMock.Get();
+    device = wgpu::Device::Acquire(ToAPI(ReturnToAPI<DeviceBase>(std::move(deviceMock))));
+}
+
+void DawnMockTest::DropDevice() {
+    mDeviceMock = nullptr;
+    device = nullptr;
 }
 
 DawnMockTest::~DawnMockTest() {
-    device = wgpu::Device();
+    DropDevice();
     dawnProcSetProcs(nullptr);
+}
+
+void DawnMockTest::ProcessEvents() {
+    mDeviceMock->GetInstance()->ProcessEvents();
 }
 
 }  // namespace dawn::native

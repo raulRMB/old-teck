@@ -32,6 +32,7 @@
 {% set api = metadata.api.lower() %}
 #include "{{native_dir}}/{{api}}_absl_format_autogen.h"
 
+#include "{{native_dir}}/ChainUtils.h"
 #include "{{native_dir}}/ObjectType_autogen.h"
 
 namespace {{native_namespace}} {
@@ -45,8 +46,8 @@ namespace {{native_namespace}} {
             {% if member.name.canonical_case() == "label" %}
                 absl::FormatConvertResult<absl::FormatConversionCharSet::kString>
                 AbslFormatConvert(const {{as_cppType(type.name)}}* value,
-                                    const absl::FormatConversionSpec& spec,
-                                    absl::FormatSink* s) {
+                                  const absl::FormatConversionSpec& spec,
+                                  absl::FormatSink* s) {
                     if (value == nullptr) {
                         s->Append("[null]");
                         return {true};
@@ -58,44 +59,14 @@ namespace {{native_namespace}} {
                     s->Append("]");
                     return {true};
                 }
+                absl::FormatConvertResult<absl::FormatConversionCharSet::kString>
+                AbslFormatConvert(const UnpackedPtr<{{as_cppType(type.name)}}>& value,
+                                  const absl::FormatConversionSpec& spec,
+                                  absl::FormatSink* s) {
+                    return AbslFormatConvert(*value, spec, s);
+                }
             {% endif %}
         {% endfor %}
-    {% endfor %}
-
-    //
-    // Compatible with absl::StrFormat (Needs to be disjoint from having a 'label' for now.)
-    // Currently uses a hard-coded list to determine which structures are actually supported. If
-    // additional structures are added, be sure to update the header file's list as well.
-    //
-    using absl::ParsedFormat;
-
-    {% for type in by_category["structure"] %}
-        {% if type.name.get() in [
-             "buffer binding layout",
-             "sampler binding layout",
-             "texture binding layout",
-             "storage texture binding layout"
-           ]
-        %}
-        absl::FormatConvertResult<absl::FormatConversionCharSet::kString>
-            AbslFormatConvert(const {{as_cppType(type.name)}}& value,
-                              const absl::FormatConversionSpec& spec,
-                              absl::FormatSink* s) {
-            {% set members = [] %}
-            {% set format = [] %}
-            {% set template = [] %}
-            {% for member in type.members %}
-                {% set memberName = member.name.camelCase() %}
-                {% do members.append("value." + memberName) %}
-                {% do format.append(memberName + ": %" + as_formatType(member)) %}
-                {% do template.append("'" + as_formatType(member) + "'") %}
-            {% endfor %}
-            static const auto* const fmt =
-                new ParsedFormat<{{template|join(",")}}>("{ {{format|join(", ")}} }");
-            s->Append(absl::StrFormat(*fmt, {{members|join(", ")}}));
-            return {true};
-        }
-        {% endif %}
     {% endfor %}
 
 }  // namespace {{native_namespace}}

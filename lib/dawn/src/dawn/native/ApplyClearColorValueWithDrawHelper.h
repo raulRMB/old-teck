@@ -29,9 +29,12 @@
 #define SRC_DAWN_NATIVE_APPLYCLEARVALUEWITHDRAWHELPER_H_
 
 #include <bitset>
-#include <unordered_map>
-#include "dawn/common/Constants.h"
+
+#include "absl/container/flat_hash_map.h"
+#include "dawn/common/ityp_array.h"
+#include "dawn/common/ityp_bitset.h"
 #include "dawn/native/Error.h"
+#include "dawn/native/IntegerTypes.h"
 
 namespace dawn::native {
 class BufferBase;
@@ -39,9 +42,11 @@ class RenderPassEncoder;
 struct RenderPassDescriptor;
 
 struct KeyOfApplyClearColorValueWithDrawPipelines {
-    uint8_t colorAttachmentCount;
-    std::array<wgpu::TextureFormat, kMaxColorAttachments> colorTargetFormats;
-    std::bitset<kMaxColorAttachments> colorTargetsToApplyClearColorValue;
+    uint8_t colorAttachmentCount = 0;
+    PerColorAttachment<wgpu::TextureFormat> colorTargetFormats;
+    ColorAttachmentMask colorTargetsToApplyClearColorValue;
+    uint32_t sampleCount = 0;
+    wgpu::TextureFormat depthStencilFormat = wgpu::TextureFormat::Undefined;
 };
 
 struct KeyOfApplyClearColorValueWithDrawPipelinesHashFunc {
@@ -52,16 +57,13 @@ struct KeyOfApplyClearColorValueWithDrawPipelinesEqualityFunc {
                     const KeyOfApplyClearColorValueWithDrawPipelines key2) const;
 };
 using ApplyClearColorValueWithDrawPipelinesCache =
-    std::unordered_map<KeyOfApplyClearColorValueWithDrawPipelines,
-                       Ref<RenderPipelineBase>,
-                       KeyOfApplyClearColorValueWithDrawPipelinesHashFunc,
-                       KeyOfApplyClearColorValueWithDrawPipelinesEqualityFunc>;
+    absl::flat_hash_map<KeyOfApplyClearColorValueWithDrawPipelines,
+                        Ref<RenderPipelineBase>,
+                        KeyOfApplyClearColorValueWithDrawPipelinesHashFunc,
+                        KeyOfApplyClearColorValueWithDrawPipelinesEqualityFunc>;
 
-bool ShouldApplyClearBigIntegerColorValueWithDraw(const DeviceBase* device,
-                                                  const RenderPassDescriptor* renderPassDescriptor);
-
-MaybeError ApplyClearBigIntegerColorValueWithDraw(RenderPassEncoder* renderPassEncoder,
-                                                  const RenderPassDescriptor* renderPassDescriptor);
+MaybeError ApplyClearWithDraw(RenderPassEncoder* renderPassEncoder,
+                              const RenderPassDescriptor* renderPassDescriptor);
 
 }  // namespace dawn::native
 

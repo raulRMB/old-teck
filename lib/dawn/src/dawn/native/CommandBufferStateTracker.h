@@ -36,6 +36,7 @@
 #include "dawn/native/BindingInfo.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/Forward.h"
+#include "partition_alloc/pointers/raw_ptr_exclusion.h"
 
 namespace dawn::native {
 
@@ -67,9 +68,10 @@ class CommandBufferStateTracker {
                       BindGroupBase* bindgroup,
                       uint32_t dynamicOffsetCount,
                       const uint32_t* dynamicOffsets);
-    void SetIndexBuffer(wgpu::IndexFormat format, uint64_t size);
+    void SetIndexBuffer(wgpu::IndexFormat format, uint64_t offset, uint64_t size);
     void UnsetVertexBuffer(VertexBufferSlot slot);
     void SetVertexBuffer(VertexBufferSlot slot, uint64_t size);
+    void End();
 
     static constexpr size_t kNumAspects = 4;
     using ValidationAspects = std::bitset<kNumAspects>;
@@ -82,6 +84,7 @@ class CommandBufferStateTracker {
     PipelineLayoutBase* GetPipelineLayout() const;
     wgpu::IndexFormat GetIndexFormat() const;
     uint64_t GetIndexBufferSize() const;
+    uint64_t GetIndexBufferOffset() const;
 
   private:
     MaybeError ValidateOperation(ValidationAspects requiredAspects);
@@ -92,19 +95,23 @@ class CommandBufferStateTracker {
 
     ValidationAspects mAspects;
 
-    ityp::array<BindGroupIndex, BindGroupBase*, kMaxBindGroups> mBindgroups = {};
-    ityp::array<BindGroupIndex, std::vector<uint32_t>, kMaxBindGroups> mDynamicOffsets = {};
-    ityp::bitset<VertexBufferSlot, kMaxVertexBuffers> mVertexBufferSlotsUsed;
+    VertexBufferMask mVertexBuffersUsed;
+    PerVertexBuffer<uint64_t> mVertexBufferSizes = {};
+
     bool mIndexBufferSet = false;
     wgpu::IndexFormat mIndexFormat;
     uint64_t mIndexBufferSize = 0;
+    uint64_t mIndexBufferOffset = 0;
 
-    ityp::array<VertexBufferSlot, uint64_t, kMaxVertexBuffers> mVertexBufferSizes = {};
+    // RAW_PTR_EXCLUSION: These pointers are very hot in command recording code and point at
+    // various objects referenced by the object graph of the CommandBuffer so they cannot be
+    // freed from underneath this class.
+    RAW_PTR_EXCLUSION PerBindGroup<BindGroupBase*> mBindgroups = {};
+    PerBindGroup<std::vector<uint32_t>> mDynamicOffsets = {};
 
-    PipelineLayoutBase* mLastPipelineLayout = nullptr;
-    PipelineBase* mLastPipeline = nullptr;
-
-    const RequiredBufferSizes* mMinBufferSizes = nullptr;
+    RAW_PTR_EXCLUSION PipelineLayoutBase* mLastPipelineLayout = nullptr;
+    RAW_PTR_EXCLUSION PipelineBase* mLastPipeline = nullptr;
+    RAW_PTR_EXCLUSION const RequiredBufferSizes* mMinBufferSizes = nullptr;
 };
 
 }  // namespace dawn::native

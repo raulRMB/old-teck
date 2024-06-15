@@ -37,6 +37,8 @@ TINT_INSTANTIATE_TYPEINFO(tint::core::ir::Access);
 namespace tint::core::ir {
 
 //! @cond Doxygen_Suppress
+Access::Access() = default;
+
 Access::Access(InstructionResult* result, Value* object, VectorRef<Value*> indices) {
     AddOperand(Access::kObjectOperandOffset, object);
     AddOperands(Access::kIndicesOperandOffset, std::move(indices));
@@ -49,7 +51,7 @@ Access* Access::Clone(CloneContext& ctx) {
     auto new_result = ctx.Clone(Result(0));
     auto obj = ctx.Remap(Object());
     auto indices = ctx.Remap<Access::kDefaultNumOperands>(Indices());
-    return ctx.ir.instructions.Create<Access>(new_result, obj, indices);
+    return ctx.ir.allocators.instructions.Create<Access>(new_result, obj, indices);
 }
 //! @endcond
 

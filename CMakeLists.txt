@@ -1,5 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.26)
-PROJECT(tech)
+PROJECT(teck)
 set(CMAKE_CXX_STANDARD 23)
 SET(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -16,9 +16,16 @@ IF(EXISTS ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json)
   message("Copying compile_commands.json")
 ENDIF()
 
-FILE(GLOB_RECURSE SRC src/*.cpp)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/res)
+  file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/res DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+  message("Copying files to ${CMAKE_CURRENT_SOURCE_DIR}/res")
+else()
+  message("res folder not found")
+endif()
 
-ADD_EXECUTABLE(${PROJECT_NAME} ${SRC})
+FILE(GLOB_RECURSE SRC src/*.cpp HEAD src/*.h)
+
+ADD_EXECUTABLE(${PROJECT_NAME} ${SRC} ${HEAD})
 
 if(EMSCRIPTEN)
   set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
@@ -35,6 +42,7 @@ if(EMSCRIPTEN)
 else()
   set(DAWN_FETCH_DEPENDENCIES ON)
   add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
+  target_include_directories(${PROJECT_NAME} PRIVATE "lib/dawn/third_party/glfw/include")
   target_link_libraries(${PROJECT_NAME} PRIVATE webgpu_cpp webgpu_dawn webgpu_glfw glm tinygltf EnTT)
 endif()
 

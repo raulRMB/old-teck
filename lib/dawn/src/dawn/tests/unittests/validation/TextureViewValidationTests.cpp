@@ -26,8 +26,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
+#include <vector>
 
 #include "dawn/tests/unittests/validation/ValidationTest.h"
+#include "dawn/utils/WGPUHelpers.h"
 
 namespace dawn {
 namespace {
@@ -928,14 +930,25 @@ TEST_F(TextureViewValidationTest, AspectMustExist) {
     }
 }
 
+// Test that CreateErrorView creates an invalid texture view but doesn't produce an error.
+TEST_F(TextureViewValidationTest, CreateErrorView) {
+    wgpu::Texture texture = Create2DArrayTexture(device, 1);
+    wgpu::TextureViewDescriptor descriptor =
+        CreateDefaultViewDescriptor(wgpu::TextureViewDimension::e2D);
+
+    // Creating the error texture view doesn't produce an error.
+    wgpu::TextureView view = texture.CreateErrorView(&descriptor);
+
+    // Using the error texture view will throw an error.
+    wgpu::BindGroupLayout layout = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Float}});
+    ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, view}}));
+}
+
 class D32S8TextureViewValidationTests : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Depth32FloatStencil8};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Depth32FloatStencil8};
     }
 };
 

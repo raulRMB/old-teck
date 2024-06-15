@@ -68,7 +68,7 @@ TEST_F(WireBasicTests, CreateThenCall) {
 TEST_F(WireBasicTests, RefCountKeptInClient) {
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
 
-    wgpuCommandEncoderReference(encoder);
+    wgpuCommandEncoderAddRef(encoder);
     wgpuCommandEncoderRelease(encoder);
 
     WGPUCommandEncoder apiCmdBufEncoder = api.GetNewCommandEncoder();
@@ -78,7 +78,7 @@ TEST_F(WireBasicTests, RefCountKeptInClient) {
     FlushClient();
 }
 
-// Test that client reference/release do not call the backend API.
+// Test that client reference/release calls the backend API.
 TEST_F(WireBasicTests, ReleaseCalledOnRefCount0) {
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, nullptr);
 

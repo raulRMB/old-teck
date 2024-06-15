@@ -29,25 +29,35 @@
 #include <vector>
 
 #include "dawn/wire/SupportedFeatures.h"
+#include "dawn/wire/server/ObjectStorage.h"
 #include "dawn/wire/server/Server.h"
 
 namespace dawn::wire::server {
 
 WireResult Server::DoInstanceRequestAdapter(Known<WGPUInstance> instance,
+                                            ObjectHandle eventManager,
                                             WGPUFuture future,
                                             ObjectHandle adapterHandle,
-                                            const WGPURequestAdapterOptions* options) {
-    Known<WGPUAdapter> adapter;
-    WIRE_TRY(AdapterObjects().Allocate(&adapter, adapterHandle, AllocationState::Reserved));
+                                            const WGPURequestAdapterOptions* options,
+                                            uint8_t userdataCount) {
+    Reserved<WGPUAdapter> adapter;
+    WIRE_TRY(Objects<WGPUAdapter>().Allocate(&adapter, adapterHandle, AllocationState::Reserved));
 
     auto userdata = MakeUserdata<RequestAdapterUserdata>();
-    userdata->instance = instance.AsHandle();
+    userdata->eventManager = eventManager;
     userdata->future = future;
     userdata->adapterObjectId = adapter.id;
 
-    mProcs.instanceRequestAdapter(instance->handle, options,
-                                  ForwardToServer<&Server::OnRequestAdapterCallback>,
-                                  userdata.release());
+    if (userdataCount == 1) {
+        mProcs.instanceRequestAdapter(instance->handle, options,
+                                      ForwardToServer<&Server::OnRequestAdapterCallback>,
+                                      userdata.release());
+    } else {
+        mProcs.instanceRequestAdapter2(
+            instance->handle, options,
+            {nullptr, WGPUCallbackMode_AllowSpontaneous,
+             ForwardToServer2<&Server::OnRequestAdapterCallback>, userdata.release(), nullptr});
+    }
     return WireResult::Success;
 }
 
@@ -56,21 +66,24 @@ void Server::OnRequestAdapterCallback(RequestAdapterUserdata* data,
                                       WGPUAdapter adapter,
                                       const char* message) {
     ReturnInstanceRequestAdapterCallbackCmd cmd = {};
-    cmd.instance = data->instance;
+    cmd.eventManager = data->eventManager;
     cmd.future = data->future;
     cmd.status = status;
     cmd.message = message;
 
     if (status != WGPURequestAdapterStatus_Success) {
-        // Free the ObjectId which will make it unusable.
-        AdapterObjects().Free(data->adapterObjectId);
         DAWN_ASSERT(adapter == nullptr);
         SerializeCommand(cmd);
         return;
     }
 
     // Assign the handle and allocated status if the adapter is created successfully.
-    AdapterObjects().FillReservation(data->adapterObjectId, adapter);
+    if (FillReservation(data->adapterObjectId, adapter) == WireResult::FatalError) {
+        cmd.status = WGPURequestAdapterStatus_Unknown;
+        cmd.message = "Destroyed before request was fulfilled.";
+        SerializeCommand(cmd);
+        return;
+    }
 
     // Query and report the adapter supported features.
     std::vector<WGPUFeatureName> features;
@@ -87,12 +100,30 @@ void Server::OnRequestAdapterCallback(RequestAdapterUserdata* data,
 
     // Query and report the adapter properties.
     WGPUAdapterProperties properties = {};
+    WGPUChainedStructOut** propertiesChain = &properties.nextInChain;
 
     // Query AdapterPropertiesMemoryHeaps if the feature is supported.
     WGPUAdapterPropertiesMemoryHeaps memoryHeapProperties = {};
     memoryHeapProperties.chain.sType = WGPUSType_AdapterPropertiesMemoryHeaps;
     if (mProcs.adapterHasFeature(adapter, WGPUFeatureName_AdapterPropertiesMemoryHeaps)) {
-        properties.nextInChain = &memoryHeapProperties.chain;
+        *propertiesChain = &memoryHeapProperties.chain;
+        propertiesChain = &(*propertiesChain)->next;
+    }
+
+    // Query AdapterPropertiesD3D if the feature is supported.
+    WGPUAdapterPropertiesD3D d3dProperties = {};
+    d3dProperties.chain.sType = WGPUSType_AdapterPropertiesD3D;
+    if (mProcs.adapterHasFeature(adapter, WGPUFeatureName_AdapterPropertiesD3D)) {
+        *propertiesChain = &d3dProperties.chain;
+        propertiesChain = &(*propertiesChain)->next;
+    }
+
+    // Query AdapterPropertiesVk if the feature is supported.
+    WGPUAdapterPropertiesVk vkProperties = {};
+    vkProperties.chain.sType = WGPUSType_AdapterPropertiesVk;
+    if (mProcs.adapterHasFeature(adapter, WGPUFeatureName_AdapterPropertiesVk)) {
+        *propertiesChain = &vkProperties.chain;
+        propertiesChain = &(*propertiesChain)->next;
     }
 
     mProcs.adapterGetProperties(adapter, &properties);

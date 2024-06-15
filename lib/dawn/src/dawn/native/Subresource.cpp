@@ -82,6 +82,8 @@ Aspect GetPlaneAspect(const Format& format, uint32_t planeIndex) {
 }
 
 Aspect SelectFormatAspects(const Format& format, wgpu::TextureAspect aspect) {
+    // TODO(crbug.com/dawn/2476): Return Aspect::Color for TextureFormat::External if aspect is
+    // present else None.
     switch (aspect) {
         case wgpu::TextureAspect::All:
             return format.aspects;
@@ -95,6 +97,8 @@ Aspect SelectFormatAspects(const Format& format, wgpu::TextureAspect aspect) {
             return format.aspects & Aspect::Plane1;
         case wgpu::TextureAspect::Plane2Only:
             return format.aspects & Aspect::Plane2;
+        case wgpu::TextureAspect::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }

@@ -88,6 +88,13 @@ enum class TextureComponentType {
     Uint,
 };
 
+enum class TextureSubsampling {
+    Undefined,
+    e420,
+    e422,
+    e444,
+};
+
 struct RequiresFeature {
     wgpu::FeatureName feature;
 };
@@ -106,7 +113,7 @@ struct AspectInfo {
 
 // The number of formats Dawn knows about. Asserts in BuildFormatTable ensure that this is the
 // exact number of known format.
-static constexpr uint32_t kKnownFormatCount = 104;
+static constexpr uint32_t kKnownFormatCount = 108;
 
 using FormatIndex = TypedInteger<struct FormatIndexT, uint32_t>;
 
@@ -158,6 +165,13 @@ struct Format {
     // If two formats has the same baseFormat, they could copy to and be viewed as the other
     // format. Currently two formats have the same baseFormat if they differ only in sRGB-ness.
     wgpu::TextureFormat baseFormat = wgpu::TextureFormat::Undefined;
+    // Additional view format a base format is compatible with. Only populated for true base
+    // formats. Only stores a single view format because Dawn currently only supports sRGB format
+    // reinterpretation.
+    wgpu::TextureFormat baseViewFormat = wgpu::TextureFormat::Undefined;
+    // Chroma subsampling used by multi-planar formats (e.g. 4:2:0 is 1/2 horizontal and 1/2
+    // vertical resolution for UV plane, 4:2:2 is 1/2 horizontal and 1/1 vertical resolution).
+    TextureSubsampling subSampling = TextureSubsampling::Undefined;
 
     // Returns true if the formats are copy compatible.
     // Currently means they differ only in sRGB-ness.
@@ -202,13 +216,9 @@ absl::FormatConvertResult<absl::FormatConversionCharSet::kString> AbslFormatConv
 
 }  // namespace dawn::native
 
-namespace dawn {
-
 template <>
-struct IsDawnBitmask<dawn::native::SampleTypeBit> {
+struct wgpu::IsWGPUBitmask<dawn::native::SampleTypeBit> {
     static constexpr bool enable = true;
 };
-
-}  // namespace dawn
 
 #endif  // SRC_DAWN_NATIVE_FORMAT_H_

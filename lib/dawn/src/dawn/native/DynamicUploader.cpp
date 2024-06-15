@@ -32,6 +32,7 @@
 #include "dawn/common/Math.h"
 #include "dawn/native/Buffer.h"
 #include "dawn/native/Device.h"
+#include "dawn/native/Queue.h"
 
 namespace dawn::native {
 
@@ -41,7 +42,8 @@ DynamicUploader::DynamicUploader(DeviceBase* device) : mDevice(device) {
 }
 
 void DynamicUploader::ReleaseStagingBuffer(Ref<BufferBase> stagingBuffer) {
-    mReleasedStagingBuffers.Enqueue(std::move(stagingBuffer), mDevice->GetPendingCommandSerial());
+    mReleasedStagingBuffers.Enqueue(std::move(stagingBuffer),
+                                    mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 ResultOrError<UploadHandle> DynamicUploader::AllocateInternal(uint64_t allocationSize,
@@ -123,13 +125,16 @@ ResultOrError<UploadHandle> DynamicUploader::AllocateInternal(uint64_t allocatio
 void DynamicUploader::Deallocate(ExecutionSerial lastCompletedSerial) {
     // Reclaim memory within the ring buffers by ticking (or removing requests no longer
     // in-flight).
-    for (size_t i = 0; i < mRingBuffers.size(); ++i) {
+    size_t i = 0;
+    while (i < mRingBuffers.size()) {
         mRingBuffers[i]->mAllocator.Deallocate(lastCompletedSerial);
 
         // Never erase the last buffer as to prevent re-creating smaller buffers
         // again. The last buffer is the largest.
         if (mRingBuffers[i]->mAllocator.Empty() && i < mRingBuffers.size() - 1) {
             mRingBuffers.erase(mRingBuffers.begin() + i);
+        } else {
+            i++;
         }
     }
     mReleasedStagingBuffers.ClearUpTo(lastCompletedSerial);

@@ -44,6 +44,9 @@ class Store final : public Castable<Store, OperandInstruction<2, 0>> {
     /// The offset in Operands() for the `from` value
     static constexpr size_t kFromOperandOffset = 1;
 
+    /// Constructor (no results, no operands)
+    Store();
+
     /// Constructor
     /// @param to the value to store too
     /// @param from the value being stored from
@@ -58,6 +61,9 @@ class Store final : public Castable<Store, OperandInstruction<2, 0>> {
 
     /// @returns the value being stored too
     const Value* To() const { return operands_[kToOperandOffset]; }
+
+    /// @param to the value being stored too
+    void SetTo(Value* to) { SetOperand(kToOperandOffset, to); }
 
     /// @returns the value being stored
     Value* From() { return operands_[kFromOperandOffset]; }

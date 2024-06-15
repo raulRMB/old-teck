@@ -1,42 +1,28 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
+struct tint_module_vars_struct {
+  device int* non_uniform_global;
+  device float* output;
+  thread bool* continue_execution;
+};
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: %b1 = block {  # root
-  %non_uniform_global:ptr<storage, i32, read_write> = var @binding_point(0, 0)
-  %output:ptr<storage, f32, read_write> = var @binding_point(0, 1)
-}
-
-%foo = func():void -> %b2 {
-  %b2 = block {
-    %4:i32 = load %non_uniform_global
-    %5:bool = lt %4, 0i
-    if %5 [t: %b3] {  # if_1
-      %b3 = block {  # true
-        discard
-        exit_if  # if_1
-      }
-    }
-    ret
+void foo(tint_module_vars_struct tint_module_vars) {
+  if (((*tint_module_vars.non_uniform_global) < 0)) {
+    (*tint_module_vars.continue_execution) = false;
   }
 }
-%bar = func():void -> %b4 {
-  %b4 = block {
-    %7:f32 = dpdx 1.0f
-    store %output, %7
-    ret
+void bar(tint_module_vars_struct tint_module_vars) {
+  float const v = dfdx(1.0f);
+  if ((*tint_module_vars.continue_execution)) {
+    (*tint_module_vars.output) = v;
   }
 }
-%tint_symbol = @fragment func():void -> %b5 {
-  %b5 = block {
-    %9:void = call %foo
-    %10:void = call %bar
-    ret
+fragment void tint_symbol(device int* non_uniform_global [[buffer(0)]], device float* output [[buffer(1)]]) {
+  thread bool continue_execution = true;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.non_uniform_global=non_uniform_global, .output=output, .continue_execution=(&continue_execution)};
+  foo(tint_module_vars);
+  bar(tint_module_vars);
+  if (!((*tint_module_vars.continue_execution))) {
+    discard_fragment();
   }
 }
-
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************

@@ -41,6 +41,11 @@ const volatile char* WireClient::HandleCommands(const volatile char* commands, s
     return mImpl->HandleCommands(commands, size);
 }
 
+ReservedBuffer WireClient::ReserveBuffer(WGPUDevice device,
+                                         const WGPUBufferDescriptor* descriptor) {
+    return mImpl->ReserveBuffer(device, descriptor);
+}
+
 ReservedTexture WireClient::ReserveTexture(WGPUDevice device,
                                            const WGPUTextureDescriptor* descriptor) {
     return mImpl->ReserveTexture(device, descriptor);
@@ -51,12 +56,12 @@ ReservedSwapChain WireClient::ReserveSwapChain(WGPUDevice device,
     return mImpl->ReserveSwapChain(device, descriptor);
 }
 
-ReservedDevice WireClient::ReserveDevice() {
-    return mImpl->ReserveDevice();
+ReservedInstance WireClient::ReserveInstance(const WGPUInstanceDescriptor* descriptor) {
+    return mImpl->ReserveInstance(descriptor);
 }
 
-ReservedInstance WireClient::ReserveInstance() {
-    return mImpl->ReserveInstance();
+void WireClient::ReclaimBufferReservation(const ReservedBuffer& reservation) {
+    mImpl->ReclaimBufferReservation(reservation);
 }
 
 void WireClient::ReclaimTextureReservation(const ReservedTexture& reservation) {

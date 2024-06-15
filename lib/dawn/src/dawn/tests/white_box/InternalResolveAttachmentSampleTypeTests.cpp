@@ -25,6 +25,7 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <utility>
 #include <vector>
 
 #include "dawn/native/BindGroupLayout.h"
@@ -76,7 +77,8 @@ class InternalResolveAttachmentSampleTypeTests : public DawnTest {
         Ref<native::BindGroupLayoutBase> bglRef =
             nativeDevice->CreateBindGroupLayout(&bglDesc, true).AcquireSuccess();
 
-        auto bindGroupLayout = wgpu::BindGroupLayout::Acquire(native::ToAPI(bglRef.Detach()));
+        auto bindGroupLayout =
+            wgpu::BindGroupLayout::Acquire(native::ToAPI(ReturnToAPI(std::move(bglRef))));
 
         // Create pipeline layout from the bind group layout.
         wgpu::PipelineLayoutDescriptor descriptor;
@@ -141,7 +143,7 @@ TEST_P(InternalResolveAttachmentSampleTypeTests, TextureLoadI32Incompatible) {
     pipelineDescriptor.layout = CreatePipelineLayout(/*withSampler=*/false);
 
     ASSERT_DEVICE_ERROR_MSG(device.CreateRenderPipeline(&pipelineDescriptor),
-                            testing::HasSubstr("not compatible"));
+                            testing::HasSubstr("isn't compatible"));
 }
 
 // Test that using a bind group layout with kInternalResolveAttachmentSampleType is incompatible
@@ -161,7 +163,7 @@ TEST_P(InternalResolveAttachmentSampleTypeTests, TextureLoadU32Incompatible) {
     pipelineDescriptor.layout = CreatePipelineLayout(/*withSampler=*/false);
 
     ASSERT_DEVICE_ERROR_MSG(device.CreateRenderPipeline(&pipelineDescriptor),
-                            testing::HasSubstr("not compatible"));
+                            testing::HasSubstr("isn't compatible"));
 }
 
 DAWN_INSTANTIATE_TEST(InternalResolveAttachmentSampleTypeTests, NullBackend());

@@ -27,7 +27,7 @@
 
 #include "dawn/native/metal/SharedFenceMTL.h"
 
-#include "dawn/native/ChainUtils_autogen.h"
+#include "dawn/native/ChainUtils.h"
 #include "dawn/native/metal/DeviceMTL.h"
 
 namespace dawn::native::metal {
@@ -38,8 +38,12 @@ ResultOrError<Ref<SharedFence>> SharedFence::Create(
     const char* label,
     const SharedFenceMTLSharedEventDescriptor* descriptor) {
     DAWN_INVALID_IF(descriptor->sharedEvent == nullptr, "MTLSharedEvent is missing.");
-    return AcquireRef(
-        new SharedFence(device, label, static_cast<id<MTLSharedEvent>>(descriptor->sharedEvent)));
+    if (@available(macOS 10.14, iOS 12.0, *)) {
+        return AcquireRef(new SharedFence(
+            device, label, static_cast<id<MTLSharedEvent>>(descriptor->sharedEvent)));
+    } else {
+        return DAWN_INTERNAL_ERROR("MTLSharedEvent not supported.");
+    }
 }
 
 SharedFence::SharedFence(Device* device, const char* label, id<MTLSharedEvent> sharedEvent)
@@ -49,15 +53,11 @@ id<MTLSharedEvent> SharedFence::GetMTLSharedEvent() const {
     return mSharedEvent.Get();
 }
 
-MaybeError SharedFence::ExportInfoImpl(SharedFenceExportInfo* info) const {
+MaybeError SharedFence::ExportInfoImpl(UnpackedPtr<SharedFenceExportInfo>& info) const {
     info->type = wgpu::SharedFenceType::MTLSharedEvent;
 
-    DAWN_TRY(
-        ValidateSingleSType(info->nextInChain, wgpu::SType::SharedFenceMTLSharedEventExportInfo));
-
-    SharedFenceMTLSharedEventExportInfo* exportInfo = nullptr;
-    FindInChain(info->nextInChain, &exportInfo);
-
+    DAWN_TRY(info.ValidateSubset<SharedFenceMTLSharedEventExportInfo>());
+    auto* exportInfo = info.Get<SharedFenceMTLSharedEventExportInfo>();
     if (exportInfo != nullptr) {
         exportInfo->sharedEvent = mSharedEvent.Get();
     }

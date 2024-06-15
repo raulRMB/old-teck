@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-add_library(dawn_utils STATIC ${DAWN_PLACEHOLDER_FILE})
+add_library(dawn_utils STATIC)
 common_compile_options(dawn_utils)
 target_sources(dawn_utils PRIVATE
     "BinarySemaphore.cpp"
@@ -51,6 +51,7 @@ target_sources(dawn_utils PRIVATE
 )
 target_link_libraries(dawn_utils
     PUBLIC dawncpp_headers
+           partition_alloc
     PRIVATE dawn_internal_config
             dawn_common
             dawn_native
@@ -58,6 +59,9 @@ target_link_libraries(dawn_utils
             dawn_wire
             SPIRV-Tools-opt
 )
+
+# Needed by WGPUHelpers
+target_compile_definitions(dawn_utils PUBLIC -DTINT_BUILD_SPV_READER=$<BOOL:${TINT_BUILD_SPV_READER}>)
 
 if(WIN32 AND NOT WINDOWS_STORE)
     target_sources(dawn_utils PRIVATE "WindowsDebugLogger.cpp")
@@ -76,8 +80,4 @@ elseif(APPLE)
     target_link_libraries(dawn_utils PRIVATE "-framework QuartzCore")
 elseif(UNIX)
     target_sources(dawn_utils PRIVATE "PosixTimer.cpp")
-endif()
-
-if (DAWN_ENABLE_METAL)
-    target_link_libraries(dawn_utils PRIVATE "-framework Metal")
 endif()

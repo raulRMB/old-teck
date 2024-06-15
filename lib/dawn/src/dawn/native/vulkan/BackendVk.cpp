@@ -34,6 +34,7 @@
 #include "dawn/common/BitSetIterator.h"
 #include "dawn/common/Log.h"
 #include "dawn/common/SystemUtils.h"
+#include "dawn/native/ChainUtils.h"
 #include "dawn/native/Instance.h"
 #include "dawn/native/VulkanBackend.h"
 #include "dawn/native/vulkan/DeviceVk.h"
@@ -43,7 +44,7 @@
 
 // TODO(crbug.com/dawn/283): Link against the Vulkan Loader and remove this.
 #if defined(DAWN_ENABLE_SWIFTSHADER)
-#if DAWN_PLATFORM_IS(LINUX) || DAWN_PLATFORM_IS(FUSCHIA)
+#if DAWN_PLATFORM_IS(LINUX) || DAWN_PLATFORM_IS(FUCHSIA)
 constexpr char kSwiftshaderLibName[] = "libvk_swiftshader.so";
 #elif DAWN_PLATFORM_IS(WINDOWS)
 constexpr char kSwiftshaderLibName[] = "vk_swiftshader.dll";
@@ -85,6 +86,9 @@ constexpr SkippedMessage kSkippedMessages[] = {
     // so this is not expected to be worked around.
     // See http://crbug.com/dawn/1225 for more details.
     //
+    {"SYNC-HAZARD-READ-AFTER-WRITE",
+     "Access info (usage: SYNC_FRAGMENT_SHADER_SHADER_SAMPLED_READ, prior_usage: "
+     "SYNC_LATE_FRAGMENT_TESTS_DEPTH_STENCIL_ATTACHMENT_WRITE"},
     // Depth used as storage
     {"SYNC-HAZARD-WRITE-AFTER-READ",
      "depth aspect during store with storeOp VK_ATTACHMENT_STORE_OP_STORE. Access info (usage: "
@@ -142,6 +146,8 @@ constexpr SkippedMessage kSkippedMessages[] = {
     {"UNASSIGNED-CoreValidation-Shader-OutputNotConsumed",
      "fragment shader writes to output location 0 with no matching attachment"},
 
+    // There are various VVL (and other) errors in dawn::native::vulkan::ExternalImage*. Suppress
+    // them for now as everything *should* be fixed by using SharedTextureMemory in the future.
     // http://crbug.com/1499919
     {"VUID-VkMemoryAllocateInfo-allocationSize-01742",
      "vkAllocateMemory(): pAllocateInfo->allocationSize allocationSize (4096) "
@@ -154,6 +160,8 @@ constexpr SkippedMessage kSkippedMessages[] = {
      "does not match pAllocateInfo->pNext<VkImportMemoryFdInfoKHR>"},
     {"VUID-VkMemoryDedicatedAllocateInfo-image-01878",
      "vkAllocateMemory(): pAllocateInfo->pNext<VkMemoryDedicatedAllocateInfo>"},
+    // crbug.com/324282958
+    {"NVIDIA", "vkBindImageMemory: memoryTypeIndex"},
 };
 
 namespace dawn::native::vulkan {
@@ -455,7 +463,7 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
     appInfo.pNext = nullptr;
     appInfo.pApplicationName = nullptr;
     appInfo.applicationVersion = 0;
-    appInfo.pEngineName = nullptr;
+    appInfo.pEngineName = "Dawn";
     appInfo.engineVersion = 0;
     appInfo.apiVersion = std::min(mGlobalInfo.apiVersion, VK_API_VERSION_1_3);
 
@@ -469,11 +477,12 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensionNames.size());
     createInfo.ppEnabledExtensionNames = extensionNames.data();
 
+    VkDebugUtilsMessengerCreateInfoEXT utilsMessengerCreateInfo;
+    VkValidationFeaturesEXT validationFeatures;
     PNextChainBuilder createInfoChain(&createInfo);
 
     // Register the debug callback for instance creation so we receive message for any errors
     // (validation or other).
-    VkDebugUtilsMessengerCreateInfoEXT utilsMessengerCreateInfo;
     if (usedKnobs.HasExt(InstanceExt::DebugUtils)) {
         utilsMessengerCreateInfo.flags = 0;
         utilsMessengerCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
@@ -489,7 +498,6 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
 
     // Try to turn on synchronization validation if the instance was created with backend
     // validation enabled.
-    VkValidationFeaturesEXT validationFeatures;
     VkValidationFeatureEnableEXT kEnableSynchronizationValidation =
         VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
     if (instance->IsBackendValidationEnabled() &&
@@ -527,7 +535,7 @@ MaybeError VulkanInstance::RegisterDebugUtils() {
 
 void VulkanInstance::StartListeningForDeviceMessages(Device* device) {
     std::lock_guard<std::mutex> lock(mMessageListenerDevicesMutex);
-    mMessageListenerDevices.insert({device->GetDebugPrefix(), device});
+    mMessageListenerDevices.emplace(device->GetDebugPrefix(), device);
 }
 void VulkanInstance::StopListeningForDeviceMessages(Device* device) {
     std::lock_guard<std::mutex> lock(mMessageListenerDevicesMutex);
@@ -548,7 +556,7 @@ Backend::Backend(InstanceBase* instance) : BackendConnection(instance, wgpu::Bac
 Backend::~Backend() = default;
 
 std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
-    const RequestAdapterOptions* options) {
+    const UnpackedPtr<RequestAdapterOptions>& options) {
     std::vector<Ref<PhysicalDeviceBase>> physicalDevices;
     InstanceBase* instance = GetInstance();
     for (ICD icd : kICDs) {
@@ -565,10 +573,12 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
             if (!mVulkanInstancesCreated[icd]) {
                 mVulkanInstancesCreated.set(icd);
 
-                instance->ConsumedErrorAndWarnOnce([&]() -> MaybeError {
-                    DAWN_TRY_ASSIGN(mVulkanInstances[icd], VulkanInstance::Create(instance, icd));
-                    return {};
-                }());
+                [[maybe_unused]] bool hadError =
+                    instance->ConsumedErrorAndWarnOnce([&]() -> MaybeError {
+                        DAWN_TRY_ASSIGN(mVulkanInstances[icd],
+                                        VulkanInstance::Create(instance, icd));
+                        return {};
+                    }());
             }
 
             if (mVulkanInstances[icd] == nullptr) {
@@ -579,8 +589,8 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
             const std::vector<VkPhysicalDevice>& vkPhysicalDevices =
                 mVulkanInstances[icd]->GetVkPhysicalDevices();
             for (VkPhysicalDevice vkPhysicalDevice : vkPhysicalDevices) {
-                Ref<PhysicalDevice> physicalDevice = AcquireRef(
-                    new PhysicalDevice(instance, mVulkanInstances[icd].Get(), vkPhysicalDevice));
+                Ref<PhysicalDevice> physicalDevice =
+                    AcquireRef(new PhysicalDevice(mVulkanInstances[icd].Get(), vkPhysicalDevice));
                 if (instance->ConsumedErrorAndWarnOnce(physicalDevice->Initialize())) {
                     continue;
                 }
@@ -591,20 +601,6 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
                                mPhysicalDevices[icd].end());
     }
     return physicalDevices;
-}
-
-void Backend::ClearPhysicalDevices() {
-    for (ICD icd : kICDs) {
-        mPhysicalDevices[icd].clear();
-    }
-}
-
-size_t Backend::GetPhysicalDeviceCountForTesting() const {
-    size_t count = 0;
-    for (ICD icd : kICDs) {
-        count += mPhysicalDevices[icd].size();
-    }
-    return count;
 }
 
 BackendConnection* Connect(InstanceBase* instance) {

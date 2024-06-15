@@ -27,6 +27,7 @@
 
 #include "src/tint/cmd/common/helper.h"
 
+#include <cstdio>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -37,6 +38,7 @@
 #endif
 
 #if TINT_BUILD_WGSL_WRITER
+#include "src/tint/lang/wgsl/writer/ir_to_program/ir_to_program.h"
 #include "src/tint/lang/wgsl/writer/writer.h"
 #endif
 
@@ -45,8 +47,10 @@
 #endif
 
 #include "src/tint/utils/diagnostic/formatter.h"
-#include "src/tint/utils/diagnostic/printer.h"
 #include "src/tint/utils/text/string.h"
+#include "src/tint/utils/text/styled_text.h"
+#include "src/tint/utils/text/styled_text_printer.h"
+#include "src/tint/utils/text/text_style.h"
 #include "src/tint/utils/traits/traits.h"
 
 namespace tint::cmd {
@@ -109,13 +113,47 @@ void PrintBindings(tint::inspector::Inspector& inspector, const std::string& ep_
     }
 }
 
+#if TINT_BUILD_SPV_READER
+tint::Program ReadSpirv(const std::vector<uint32_t>& data, const LoadProgramOptions& opts) {
+    if (opts.use_ir) {
+#if TINT_BUILD_WGSL_WRITER
+        // Parse the SPIR-V binary to a core Tint IR module.
+        auto result = tint::spirv::reader::ReadIR(data);
+        if (result != Success) {
+            std::cerr << "Failed to parse SPIR-V: " << result.Failure() << "\n";
+            exit(1);
+        }
+
+        // Convert the IR module to a Program.
+        tint::wgsl::writer::ProgramOptions writer_options;
+        writer_options.allow_non_uniform_derivatives =
+            opts.spirv_reader_options.allow_non_uniform_derivatives;
+        writer_options.allowed_features = opts.spirv_reader_options.allowed_features;
+        auto prog_result = tint::wgsl::writer::ProgramFromIR(result.Get(), writer_options);
+        if (prog_result != Success) {
+            std::cerr << "Failed to convert IR to Program:\n\n"
+                      << prog_result.Failure().reason << "\n";
+            exit(1);
+        }
+
+        return prog_result.Move();
+#else
+        std::cerr << "Tint not built with the WGSL writer enabled" << std::endl;
+        exit(1);
+#endif  // TINT_BUILD_WGSL_READER
+    } else {
+        return tint::spirv::reader::Read(data, opts.spirv_reader_options);
+    }
+}
+#endif  // TINT_BUILD_SPV_READER
+
 }  // namespace
 
-[[noreturn]] void TintInternalCompilerErrorReporter(const InternalCompilerError& err) {
-    auto printer = diag::Printer::create(stderr, true);
-    diag::Style bold_red{diag::Color::kRed, true};
-    printer->write(err.Error(), bold_red);
-    constexpr const char* please_file_bug = R"(
+void TintInternalCompilerErrorReporter(const InternalCompilerError& err) {
+    auto printer = StyledTextPrinter::Create(stderr);
+    StyledText msg;
+    msg << (style::Error + style::Bold) << err.Error();
+    msg << R"(
 ********************************************************************
 *  The tint shader compiler has encountered an unexpected error.   *
 *                                                                  *
@@ -123,15 +161,14 @@ void PrintBindings(tint::inspector::Inspector& inspector, const std::string& ep_
 *  crbug.com/tint with the source program that triggered the bug.  *
 ********************************************************************
 )";
-    printer->write(please_file_bug, bold_red);
-    exit(1);
+    printer->Print(msg);
 }
 
 void PrintWGSL(std::ostream& out, const tint::Program& program) {
 #if TINT_BUILD_WGSL_WRITER
     tint::wgsl::writer::Options options;
     auto result = tint::wgsl::writer::Generate(program, options);
-    if (result) {
+    if (result == Success) {
         out << std::endl << result->wgsl << std::endl;
     } else {
         out << result.Failure() << std::endl;
@@ -180,7 +217,7 @@ ProgramInfo LoadProgramInfo(const LoadProgramOptions& opts) {
                 }
 
                 return ProgramInfo{
-                    /* program */ tint::spirv::reader::Read(data, opts.spirv_reader_options),
+                    /* program */ ReadSpirv(data, opts),
                     /* source_file */ nullptr,
                 };
 #else
@@ -211,7 +248,7 @@ ProgramInfo LoadProgramInfo(const LoadProgramOptions& opts) {
                     opts.filename, std::string(text.begin(), text.end()));
 
                 return ProgramInfo{
-                    /* program */ tint::spirv::reader::Read(data, opts.spirv_reader_options),
+                    /* program */ ReadSpirv(data, opts),
                     /* source_file */ std::move(file),
                 };
 #else
@@ -227,16 +264,23 @@ ProgramInfo LoadProgramInfo(const LoadProgramOptions& opts) {
 
     ProgramInfo info = load();
 
-    if (info.program.Diagnostics().count() > 0) {
+    if (info.program.Diagnostics().Count() > 0) {
         if (!info.program.IsValid() && input_format != InputFormat::kWgsl) {
             // Invalid program from a non-wgsl source.
             // Print the WGSL, to help understand the diagnostics.
             PrintWGSL(std::cout, info.program);
         }
 
-        auto diag_printer = tint::diag::Printer::create(stderr, true);
-        tint::diag::Formatter diag_formatter;
-        diag_formatter.format(info.program.Diagnostics(), diag_printer.get());
+        tint::diag::Formatter formatter;
+        if (opts.printer) {
+            opts.printer->Print(formatter.Format(info.program.Diagnostics()));
+        } else {
+            tint::StyledTextPrinter::Create(stderr)->Print(
+                formatter.Format(info.program.Diagnostics()));
+        }
+        // Flush any diagnostics written to stderr. We depend on these being emitted to the console
+        // before the program for end-to-end tests.
+        fflush(stderr);
     }
 
     if (!info.program.IsValid()) {
@@ -418,6 +462,8 @@ std::string TexelFormatToString(tint::inspector::ResourceBinding::TexelFormat fo
             return "Rgba32Sint";
         case tint::inspector::ResourceBinding::TexelFormat::kRgba32Float:
             return "Rgba32Float";
+        case tint::inspector::ResourceBinding::TexelFormat::kR8Unorm:
+            return "R8Unorm";
         case tint::inspector::ResourceBinding::TexelFormat::kNone:
             return "None";
     }

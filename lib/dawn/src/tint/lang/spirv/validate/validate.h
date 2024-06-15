@@ -28,18 +28,16 @@
 #ifndef SRC_TINT_LANG_SPIRV_VALIDATE_VALIDATE_H_
 #define SRC_TINT_LANG_SPIRV_VALIDATE_VALIDATE_H_
 
+#include "spirv-tools/libspirv.hpp"
 #include "src/tint/utils/result/result.h"
-
-// Forward declarations
-namespace tint {
-class Program;
-}  // namespace tint
 
 namespace tint::spirv::validate {
 
 /// Validate checks that the provided SPIR-V passes validation.
+/// @param spirv the SPIR-V binary data
+/// @param target_env the target environment to validate against
 /// @return success or failure(s)
-Result<SuccessType> Validate(Slice<const uint32_t> spirv);
+Result<SuccessType> Validate(Slice<const uint32_t> spirv, spv_target_env target_env);
 
 }  // namespace tint::spirv::validate
 

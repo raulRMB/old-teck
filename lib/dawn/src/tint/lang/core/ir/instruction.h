@@ -61,6 +61,14 @@ class Instruction : public Castable<Instruction> {
     /// @returns the operands of the instruction
     virtual VectorRef<const ir::Value*> Operands() const = 0;
 
+    /// Replaces the operands of the instruction
+    /// @param operands the new operands of the instruction
+    virtual void SetOperands(VectorRef<ir::Value*> operands) = 0;
+
+    /// Replaces the results of the instruction
+    /// @param results the new results of the instruction
+    virtual void SetResults(VectorRef<ir::InstructionResult*> results) = 0;
+
     /// @returns the result values for this instruction
     virtual VectorRef<InstructionResult*> Results() = 0;
 
@@ -106,6 +114,10 @@ class Instruction : public Castable<Instruction> {
     void ReplaceWith(Instruction* replacement);
     /// Removes this instruction from the owning block
     void Remove();
+
+    /// Detach an instruction result from this instruction.
+    /// @returns the instruction result that was detached
+    InstructionResult* DetachResult();
 
     /// @param idx the index of the operand
     /// @returns the operand with index @p idx, or `nullptr` if there are no operands or the index

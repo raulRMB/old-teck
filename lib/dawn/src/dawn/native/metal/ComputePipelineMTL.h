@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "dawn/native/ComputePipeline.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 
 #include "dawn/common/NSRef.h"
 
@@ -42,13 +43,11 @@ class Device;
 
 class ComputePipeline final : public ComputePipelineBase {
   public:
-    static Ref<ComputePipeline> CreateUninitialized(Device* device,
-                                                    const ComputePipelineDescriptor* descriptor);
-    static void InitializeAsync(Ref<ComputePipelineBase> computePipeline,
-                                WGPUCreateComputePipelineAsyncCallback callback,
-                                void* userdata);
+    static Ref<ComputePipeline> CreateUninitialized(
+        Device* device,
+        const UnpackedPtr<ComputePipelineDescriptor>& descriptor);
 
-    ComputePipeline(DeviceBase* device, const ComputePipelineDescriptor* descriptor);
+    ComputePipeline(DeviceBase* device, const UnpackedPtr<ComputePipelineDescriptor>& descriptor);
     ~ComputePipeline() override;
 
     void Encode(id<MTLComputeCommandEncoder> encoder);
@@ -57,7 +56,7 @@ class ComputePipeline final : public ComputePipelineBase {
 
   private:
     using ComputePipelineBase::ComputePipelineBase;
-    MaybeError Initialize() override;
+    MaybeError InitializeImpl() override;
 
     NSPRef<id<MTLComputePipelineState>> mMtlComputePipelineState;
     MTLSize mLocalWorkgroupSize;

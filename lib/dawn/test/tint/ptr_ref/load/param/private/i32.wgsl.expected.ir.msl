@@ -1,9 +1,14 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
+struct tint_module_vars_struct {
+  thread int* P;
+};
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:270 internal compiler error: Switch() matched no cases. Type: tint::core::ir::FunctionParam
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+int func(thread int* const pointer) {
+  return (*pointer);
+}
+kernel void tint_symbol() {
+  thread int P = 0;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.P=(&P)};
+  int const r = func(tint_module_vars.P);
+}

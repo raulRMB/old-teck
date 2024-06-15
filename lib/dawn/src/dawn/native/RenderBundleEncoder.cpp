@@ -29,7 +29,6 @@
 
 #include <utility>
 
-#include "dawn/common/StackContainer.h"
 #include "dawn/native/CommandValidation.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/Device.h"
@@ -61,15 +60,6 @@ MaybeError ValidateDepthStencilAttachmentFormat(const DeviceBase* device,
     DAWN_TRY_ASSIGN(format, device->GetInternalFormat(textureFormat));
     DAWN_INVALID_IF(!format->HasDepthOrStencil() || !format->isRenderable,
                     "Texture format %s is not depth/stencil renderable.", textureFormat);
-
-    if (!device->IsToggleEnabled(Toggle::AllowUnsafeAPIs)) {
-        DAWN_INVALID_IF(
-            format->HasDepth() && format->HasStencil() && depthReadOnly != stencilReadOnly,
-            "depthReadOnly (%u) and stencilReadOnly (%u) must be the same when format %s has "
-            "both depth and stencil aspects.",
-            depthReadOnly, stencilReadOnly, textureFormat);
-    }
-
     return {};
 }
 
@@ -90,7 +80,7 @@ MaybeError ValidateRenderBundleEncoderDescriptor(DeviceBase* device,
         if (format != wgpu::TextureFormat::Undefined) {
             DAWN_TRY_CONTEXT(ValidateColorAttachmentFormat(device, format),
                              "validating colorFormats[%u]", i);
-            colorAttachmentFormats->push_back(&device->GetValidInternalFormat(format));
+            colorAttachmentFormats.push_back(&device->GetValidInternalFormat(format));
             allColorFormatsUndefined = false;
         }
     }
@@ -127,7 +117,13 @@ RenderBundleEncoder::RenderBundleEncoder(DeviceBase* device, ErrorTag errorTag, 
     : RenderEncoderBase(device, &mBundleEncodingContext, errorTag, label),
       mBundleEncodingContext(device, this) {}
 
+RenderBundleEncoder::~RenderBundleEncoder() {
+    mEncodingContext = nullptr;
+}
+
 void RenderBundleEncoder::DestroyImpl() {
+    mIndirectDrawMetadata.ClearIndexedIndirectBufferValidationInfo();
+    mCommandBufferState.End();
     RenderEncoderBase::DestroyImpl();
     mBundleEncodingContext.Destroy();
 }
@@ -140,8 +136,8 @@ Ref<RenderBundleEncoder> RenderBundleEncoder::Create(
 }
 
 // static
-RenderBundleEncoder* RenderBundleEncoder::MakeError(DeviceBase* device, const char* label) {
-    return new RenderBundleEncoder(device, ObjectBase::kError, label);
+Ref<RenderBundleEncoder> RenderBundleEncoder::MakeError(DeviceBase* device, const char* label) {
+    return AcquireRef(new RenderBundleEncoder(device, ObjectBase::kError, label));
 }
 
 ObjectType RenderBundleEncoder::GetType() const {
@@ -153,21 +149,21 @@ CommandIterator RenderBundleEncoder::AcquireCommands() {
 }
 
 RenderBundleBase* RenderBundleEncoder::APIFinish(const RenderBundleDescriptor* descriptor) {
-    RenderBundleBase* result = nullptr;
+    Ref<RenderBundleBase> result;
 
     if (GetDevice()->ConsumedError(FinishImpl(descriptor), &result, "calling %s.Finish(%s).", this,
                                    descriptor)) {
-        RenderBundleBase* errorRenderBundle =
-            RenderBundleBase::MakeError(GetDevice(), descriptor ? descriptor->label : nullptr);
-        errorRenderBundle->SetEncoderLabel(this->GetLabel());
-        return errorRenderBundle;
+        result = RenderBundleBase::MakeError(GetDevice(), descriptor ? descriptor->label : nullptr);
+        result->SetEncoderLabel(this->GetLabel());
     }
 
-    return result;
+    return ReturnToAPI(std::move(result));
 }
 
-ResultOrError<RenderBundleBase*> RenderBundleEncoder::FinishImpl(
+ResultOrError<Ref<RenderBundleBase>> RenderBundleEncoder::FinishImpl(
     const RenderBundleDescriptor* descriptor) {
+    mCommandBufferState.End();
+
     // Even if mBundleEncodingContext.Finish() validation fails, calling it will mutate the
     // internal state of the encoding context. Subsequent calls to encode commands will generate
     // errors.
@@ -180,9 +176,9 @@ ResultOrError<RenderBundleBase*> RenderBundleEncoder::FinishImpl(
         DAWN_TRY(ValidateFinish(usages));
     }
 
-    return new RenderBundleBase(this, descriptor, AcquireAttachmentState(), IsDepthReadOnly(),
-                                IsStencilReadOnly(), std::move(usages),
-                                std::move(mIndirectDrawMetadata));
+    return AcquireRef(new RenderBundleBase(this, descriptor, AcquireAttachmentState(),
+                                           IsDepthReadOnly(), IsStencilReadOnly(),
+                                           std::move(usages), std::move(mIndirectDrawMetadata)));
 }
 
 MaybeError RenderBundleEncoder::ValidateFinish(const RenderPassResourceUsage& usages) const {

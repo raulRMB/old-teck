@@ -38,6 +38,8 @@ TINT_INSTANTIATE_TYPEINFO(tint::core::ir::ExitSwitch);
 
 namespace tint::core::ir {
 
+ExitSwitch::ExitSwitch() = default;
+
 ExitSwitch::ExitSwitch(ir::Switch* sw, VectorRef<Value*> args /* = tint::Empty */) {
     SetSwitch(sw);
     AddOperands(ExitSwitch::kArgsOperandOffset, std::move(args));
@@ -48,7 +50,7 @@ ExitSwitch::~ExitSwitch() = default;
 ExitSwitch* ExitSwitch::Clone(CloneContext& ctx) {
     auto* switch_ = ctx.Remap(Switch());
     auto args = ctx.Remap<ExitSwitch::kDefaultNumOperands>(Args());
-    return ctx.ir.instructions.Create<ExitSwitch>(switch_, args);
+    return ctx.ir.allocators.instructions.Create<ExitSwitch>(switch_, args);
 }
 
 void ExitSwitch::SetSwitch(ir::Switch* s) {

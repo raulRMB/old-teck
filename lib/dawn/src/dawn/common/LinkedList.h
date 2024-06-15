@@ -12,6 +12,7 @@
 #define SRC_DAWN_COMMON_LINKEDLIST_H_
 
 #include "dawn/common/Assert.h"
+#include "partition_alloc/pointers/raw_ptr_exclusion.h"
 
 namespace dawn {
 
@@ -171,8 +172,11 @@ class LinkNode {
 
   private:
     friend class LinkedList<T>;
-    LinkNode<T>* previous_;
-    LinkNode<T>* next_;
+    // RAW_PTR_EXCLUSION: Linked lists are used and iterated a lot so these pointers are very hot.
+    // All accesses to the pointers are behind "safe" APIs such that it is not possible (in
+    // single-threaded code) to use them after they are freed.
+    RAW_PTR_EXCLUSION LinkNode<T>* previous_ = nullptr;
+    RAW_PTR_EXCLUSION LinkNode<T>* next_ = nullptr;
 };
 
 template <typename T>
@@ -233,8 +237,11 @@ class LinkedListIterator {
     LinkNode<T>* operator*() const { return current_; }
 
   private:
-    LinkNode<T>* current_;
-    LinkNode<T>* next_;
+    // RAW_PTR_EXCLUSION: Linked lists are used and iterated a lot so these pointers are very hot.
+    // All accesses to the pointers are behind "safe" APIs such that it is not possible (in
+    // single-threaded code) to use them after they are freed.
+    RAW_PTR_EXCLUSION LinkNode<T>* current_ = nullptr;
+    RAW_PTR_EXCLUSION LinkNode<T>* next_ = nullptr;
 };
 
 template <typename T>

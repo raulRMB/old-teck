@@ -81,6 +81,9 @@ class Switch final : public Castable<Switch, ControlInstruction> {
         ConstPropagatingPtr<ir::Block> block;
     };
 
+    /// Constructor (no results, no operands, no cases)
+    Switch();
+
     /// Constructor
     /// @param cond the condition
     explicit Switch(Value* cond);
@@ -91,6 +94,9 @@ class Switch final : public Castable<Switch, ControlInstruction> {
 
     /// @copydoc ControlInstruction::ForeachBlock
     void ForeachBlock(const std::function<void(ir::Block*)>& cb) override;
+
+    /// @copydoc ControlInstruction::ForeachBlock
+    void ForeachBlock(const std::function<void(const ir::Block*)>& cb) const override;
 
     /// @returns the switch cases
     Vector<Case, 4>& Cases() { return cases_; }

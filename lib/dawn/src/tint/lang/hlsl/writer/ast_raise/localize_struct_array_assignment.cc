@@ -183,8 +183,14 @@ struct LocalizeStructArrayAssignment::State {
             if (!idx_sem->ConstantValue()) {
                 // Indexing a member access expr?
                 if (auto* ma = ia->object->As<ast::MemberAccessorExpression>()) {
+                    const auto* ma_ty = src.TypeOf(ma);
+                    if (TINT_UNLIKELY(ma_ty->Is<core::type::Pointer>())) {
+                        TINT_ICE()
+                            << "lhs of index accessor expression should not be a pointer. These "
+                               "should have been removed by the SimplifyPointers transform";
+                    }
                     // That accesses an array?
-                    if (src.TypeOf(ma)->UnwrapRef()->Is<core::type::Array>()) {
+                    if (ma_ty->UnwrapRef()->Is<core::type::Array>()) {
                         result = true;
                         return ast::TraverseAction::Stop;
                     }
@@ -205,7 +211,6 @@ struct LocalizeStructArrayAssignment::State {
         if (TINT_UNLIKELY(!root_ident)) {
             TINT_ICE() << "Unable to determine originating variable for lhs of assignment "
                           "statement";
-            return {};
         }
 
         return Switch(

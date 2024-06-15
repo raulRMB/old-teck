@@ -35,6 +35,7 @@
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/wgsl/builtin_fn.h"
 #include "src/tint/lang/wgsl/ir/builtin_call.h"
+#include "src/tint/utils/ice/ice.h"
 
 namespace tint::wgsl::reader {
 namespace {
@@ -105,6 +106,10 @@ core::BuiltinFn Convert(wgsl::BuiltinFn fn) {
         CASE(kPack2X16Unorm)
         CASE(kPack4X8Snorm)
         CASE(kPack4X8Unorm)
+        CASE(kPack4XI8)
+        CASE(kPack4XU8)
+        CASE(kPack4XI8Clamp)
+        CASE(kPack4XU8Clamp)
         CASE(kPow)
         CASE(kQuantizeToF16)
         CASE(kRadians)
@@ -130,6 +135,8 @@ core::BuiltinFn Convert(wgsl::BuiltinFn fn) {
         CASE(kUnpack2X16Unorm)
         CASE(kUnpack4X8Snorm)
         CASE(kUnpack4X8Unorm)
+        CASE(kUnpack4XI8)
+        CASE(kUnpack4XU8)
         CASE(kWorkgroupBarrier)
         CASE(kTextureBarrier)
         CASE(kTextureDimensions)
@@ -160,25 +167,26 @@ core::BuiltinFn Convert(wgsl::BuiltinFn fn) {
         CASE(kAtomicCompareExchangeWeak)
         CASE(kSubgroupBallot)
         CASE(kSubgroupBroadcast)
-        default:
-            TINT_ICE() << "unhandled builtin function: " << fn;
-            return core::BuiltinFn::kNone;
+
+        case tint::wgsl::BuiltinFn::kBitcast:               // should lower to ir::Bitcast
+        case tint::wgsl::BuiltinFn::kWorkgroupUniformLoad:  // should be handled in Lower()
+        case tint::wgsl::BuiltinFn::kTintMaterialize:
+        case tint::wgsl::BuiltinFn::kNone:
+            break;
     }
+    TINT_ICE() << "unhandled builtin function: " << fn;
 }
 
 }  // namespace
 
 Result<SuccessType> Lower(core::ir::Module& mod) {
-    if (auto res = core::ir::ValidateAndDumpIfNeeded(mod, "lowering from WGSL"); !res) {
+    if (auto res = core::ir::ValidateAndDumpIfNeeded(mod, "lowering from WGSL"); res != Success) {
         return res.Failure();
     }
 
     core::ir::Builder b{mod};
     core::type::Manager& ty{mod.Types()};
-    for (auto* inst : mod.instructions.Objects()) {
-        if (!inst->Alive()) {
-            continue;
-        }
+    for (auto* inst : mod.Instructions()) {
         if (auto* call = inst->As<wgsl::ir::BuiltinCall>()) {
             switch (call->Func()) {
                 case BuiltinFn::kWorkgroupUniformLoad: {
@@ -190,18 +198,16 @@ Result<SuccessType> Lower(core::ir::Module& mod) {
                     //    call workgroupBarrier
                     b.InsertBefore(call, [&] {
                         b.Call(ty.void_(), core::BuiltinFn::kWorkgroupBarrier);
-                        auto* load = b.Load(call->Args()[0]);
-                        call->Result(0)->ReplaceAllUsesWith(load->Result(0));
+                        b.LoadWithResult(call->DetachResult(), call->Args()[0]);
                         b.Call(ty.void_(), core::BuiltinFn::kWorkgroupBarrier);
                     });
                     break;
                 }
                 default: {
                     Vector<core::ir::Value*, 8> args(call->Args());
-                    auto* replacement = mod.instructions.Create<core::ir::CoreBuiltinCall>(
-                        call->Result(0), Convert(call->Func()), std::move(args));
+                    auto* replacement = b.CallWithResult(call->DetachResult(),
+                                                         Convert(call->Func()), std::move(args));
                     call->ReplaceWith(replacement);
-                    call->ClearResults();
                     break;
                 }
             }

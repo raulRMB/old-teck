@@ -30,6 +30,7 @@
 #include <string_view>
 #include <utility>
 
+#include "dawn/native/ChainUtils.h"
 #include "dawn/tests/MockCallback.h"
 #include "dawn/webgpu_cpp.h"
 #include "mocks/BufferMock.h"
@@ -75,7 +76,7 @@ class AllowedErrorTests : public DawnMockTest {
                                           mDeviceErrorCb.MakeUserdata(this));
     }
 
-    ~AllowedErrorTests() override { device = nullptr; }
+    ~AllowedErrorTests() override { DropDevice(); }
 
   protected:
     // Device mock callbacks used throughout the tests.
@@ -93,7 +94,7 @@ TEST_F(AllowedErrorTests, QueueSubmit) {
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
 
     device.GetQueue().Submit(0, nullptr);
@@ -103,15 +104,15 @@ TEST_F(AllowedErrorTests, QueueWriteBuffer) {
     BufferDescriptor desc = {};
     desc.size = 1;
     desc.usage = wgpu::BufferUsage::CopyDst;
-    BufferMock* bufferMock = new NiceMock<BufferMock>(mDeviceMock, &desc);
-    wgpu::Buffer buffer = wgpu::Buffer::Acquire(ToAPI(bufferMock));
+    Ref<BufferMock> bufferMock = AcquireRef(new NiceMock<BufferMock>(mDeviceMock, &desc));
+    wgpu::Buffer buffer = wgpu::Buffer::Acquire(ToAPI(ReturnToAPI(std::move(bufferMock))));
 
     EXPECT_CALL(*(mDeviceMock->GetQueueMock()), WriteBufferImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
 
     constexpr uint8_t data = 8;
@@ -124,15 +125,15 @@ TEST_F(AllowedErrorTests, QueueWriteTexture) {
     desc.size.height = 1;
     desc.usage = wgpu::TextureUsage::CopyDst;
     desc.format = wgpu::TextureFormat::RGBA8Unorm;
-    TextureMock* textureMock = new NiceMock<TextureMock>(mDeviceMock, &desc);
-    wgpu::Texture texture = wgpu::Texture::Acquire(ToAPI(textureMock));
+    Ref<TextureMock> textureMock = AcquireRef(new NiceMock<TextureMock>(mDeviceMock, &desc));
+    wgpu::Texture texture = wgpu::Texture::Acquire(ToAPI(ReturnToAPI(std::move(textureMock))));
 
     EXPECT_CALL(*(mDeviceMock->GetQueueMock()), WriteTextureImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
 
     constexpr uint8_t data[] = {1, 2, 4, 8};
@@ -165,7 +166,7 @@ TEST_F(AllowedErrorTests, QueueCopyTextureForBrowserOomBuffer) {
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
     device.GetQueue().CopyTextureForBrowser(&src, &dst, &size, &options);
 }
@@ -206,7 +207,7 @@ TEST_F(AllowedErrorTests, QueueCopyExternalTextureForBrowserOomBuffer) {
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
     device.GetQueue().CopyExternalTextureForBrowser(&src, &dst, &size, &options);
 }
@@ -217,17 +218,16 @@ TEST_F(AllowedErrorTests, CreateComputePipeline) {
 
     ComputePipelineDescriptor desc = {};
     desc.compute.module = csModule.Get();
-    desc.compute.entryPoint = "main";
 
     Ref<ComputePipelineMock> computePipelineMock = ComputePipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*computePipelineMock.Get(), Initialize)
+    EXPECT_CALL(*computePipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedComputePipelineImpl)
         .WillOnce(Return(ByMove(std::move(computePipelineMock))));
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
     device.CreateComputePipeline(ToCppAPI(&desc));
 }
@@ -238,17 +238,16 @@ TEST_F(AllowedErrorTests, CreateRenderPipeline) {
 
     RenderPipelineDescriptor desc = {};
     desc.vertex.module = vsModule.Get();
-    desc.vertex.entryPoint = "main";
 
     Ref<RenderPipelineMock> renderPipelineMock = RenderPipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*renderPipelineMock.Get(), Initialize)
+    EXPECT_CALL(*renderPipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedRenderPipelineImpl)
         .WillOnce(Return(ByMove(std::move(renderPipelineMock))));
 
     // Expect the device lost because of the error.
     EXPECT_CALL(mDeviceLostCb,
-                Call(WGPUDeviceLostReason_Undefined, HasSubstr(kOomErrorMessage), this))
+                Call(WGPUDeviceLostReason_Unknown, HasSubstr(kOomErrorMessage), this))
         .Times(1);
     device.CreateRenderPipeline(ToCppAPI(&desc));
 }
@@ -260,10 +259,9 @@ TEST_F(AllowedErrorTests, CreateComputePipelineInternalError) {
 
     ComputePipelineDescriptor desc = {};
     desc.compute.module = csModule.Get();
-    desc.compute.entryPoint = "main";
 
     Ref<ComputePipelineMock> computePipelineMock = ComputePipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*computePipelineMock.Get(), Initialize)
+    EXPECT_CALL(*computePipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_INTERNAL_ERROR(kInternalErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedComputePipelineImpl)
         .WillOnce(Return(ByMove(std::move(computePipelineMock))));
@@ -285,10 +283,9 @@ TEST_F(AllowedErrorTests, CreateRenderPipelineInternalError) {
 
     RenderPipelineDescriptor desc = {};
     desc.vertex.module = vsModule.Get();
-    desc.vertex.entryPoint = "main";
 
     Ref<RenderPipelineMock> renderPipelineMock = RenderPipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*renderPipelineMock.Get(), Initialize)
+    EXPECT_CALL(*renderPipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_INTERNAL_ERROR(kInternalErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedRenderPipelineImpl)
         .WillOnce(Return(ByMove(std::move(renderPipelineMock))));
@@ -313,10 +310,9 @@ TEST_F(AllowedErrorTests, CreateComputePipelineAsync) {
 
     ComputePipelineDescriptor desc = {};
     desc.compute.module = csModule.Get();
-    desc.compute.entryPoint = "main";
 
     Ref<ComputePipelineMock> computePipelineMock = ComputePipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*computePipelineMock.Get(), Initialize)
+    EXPECT_CALL(*computePipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedComputePipelineImpl)
         .WillOnce(Return(ByMove(std::move(computePipelineMock))));
@@ -327,7 +323,7 @@ TEST_F(AllowedErrorTests, CreateComputePipelineAsync) {
         .Times(1);
 
     device.CreateComputePipelineAsync(ToCppAPI(&desc), cb.Callback(), cb.MakeUserdata(this));
-    device.Tick();
+    ProcessEvents();
 
     // Device lost should only happen because of destruction.
     EXPECT_CALL(mDeviceLostCb, Call(WGPUDeviceLostReason_Destroyed, _, this)).Times(1);
@@ -339,10 +335,9 @@ TEST_F(AllowedErrorTests, CreateRenderPipelineAsync) {
 
     RenderPipelineDescriptor desc = {};
     desc.vertex.module = vsModule.Get();
-    desc.vertex.entryPoint = "main";
 
     Ref<RenderPipelineMock> renderPipelineMock = RenderPipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*renderPipelineMock.Get(), Initialize)
+    EXPECT_CALL(*renderPipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_OUT_OF_MEMORY_ERROR(kOomErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedRenderPipelineImpl)
         .WillOnce(Return(ByMove(std::move(renderPipelineMock))));
@@ -353,7 +348,7 @@ TEST_F(AllowedErrorTests, CreateRenderPipelineAsync) {
         .Times(1);
 
     device.CreateRenderPipelineAsync(ToCppAPI(&desc), cb.Callback(), cb.MakeUserdata(this));
-    device.Tick();
+    ProcessEvents();
 
     // Device lost should only happen because of destruction.
     EXPECT_CALL(mDeviceLostCb, Call(WGPUDeviceLostReason_Destroyed, _, this)).Times(1);
@@ -366,10 +361,9 @@ TEST_F(AllowedErrorTests, CreateComputePipelineAsyncInternalError) {
 
     ComputePipelineDescriptor desc = {};
     desc.compute.module = csModule.Get();
-    desc.compute.entryPoint = "main";
 
     Ref<ComputePipelineMock> computePipelineMock = ComputePipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*computePipelineMock.Get(), Initialize)
+    EXPECT_CALL(*computePipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_INTERNAL_ERROR(kInternalErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedComputePipelineImpl)
         .WillOnce(Return(ByMove(std::move(computePipelineMock))));
@@ -380,7 +374,7 @@ TEST_F(AllowedErrorTests, CreateComputePipelineAsyncInternalError) {
         .Times(1);
 
     device.CreateComputePipelineAsync(ToCppAPI(&desc), cb.Callback(), cb.MakeUserdata(this));
-    device.Tick();
+    ProcessEvents();
 
     // Device lost should only happen because of destruction.
     EXPECT_CALL(mDeviceLostCb, Call(WGPUDeviceLostReason_Destroyed, _, this)).Times(1);
@@ -393,10 +387,9 @@ TEST_F(AllowedErrorTests, CreateRenderPipelineAsyncInternalError) {
 
     RenderPipelineDescriptor desc = {};
     desc.vertex.module = vsModule.Get();
-    desc.vertex.entryPoint = "main";
 
     Ref<RenderPipelineMock> renderPipelineMock = RenderPipelineMock::Create(mDeviceMock, &desc);
-    EXPECT_CALL(*renderPipelineMock.Get(), Initialize)
+    EXPECT_CALL(*renderPipelineMock.Get(), InitializeImpl)
         .WillOnce(Return(ByMove(DAWN_INTERNAL_ERROR(kInternalErrorMessage))));
     EXPECT_CALL(*mDeviceMock, CreateUninitializedRenderPipelineImpl)
         .WillOnce(Return(ByMove(std::move(renderPipelineMock))));
@@ -407,7 +400,7 @@ TEST_F(AllowedErrorTests, CreateRenderPipelineAsyncInternalError) {
         .Times(1);
 
     device.CreateRenderPipelineAsync(ToCppAPI(&desc), cb.Callback(), cb.MakeUserdata(this));
-    device.Tick();
+    ProcessEvents();
 
     // Device lost should only happen because of destruction.
     EXPECT_CALL(mDeviceLostCb, Call(WGPUDeviceLostReason_Destroyed, _, this)).Times(1);

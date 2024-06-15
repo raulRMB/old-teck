@@ -27,9 +27,9 @@
 #ifndef SRC_DAWN_NATIVE_VULKAN_COMMANDRECORDINGCONTEXT_H_
 #define SRC_DAWN_NATIVE_VULKAN_COMMANDRECORDINGCONTEXT_H_
 
-#include <set>
 #include <vector>
 
+#include "absl/container/flat_hash_set.h"
 #include "dawn/common/vulkan_platform.h"
 #include "dawn/native/vulkan/BufferVk.h"
 #include "dawn/native/vulkan/VulkanFunctions.h"
@@ -60,11 +60,11 @@ struct CommandRecordingContext {
 
     // External textures that will be eagerly transitioned just before VkSubmit. The textures are
     // kept alive by the CommandBuffer so they don't need to be Ref-ed.
-    std::set<Texture*> externalTexturesForEagerTransition;
+    absl::flat_hash_set<Texture*> externalTexturesForEagerTransition;
 
     // Mappable buffers which will be eagerly transitioned to usage MapRead or MapWrite after
     // VkSubmit.
-    std::set<Ref<Buffer>> mappableBuffersForEagerTransition;
+    absl::flat_hash_set<Ref<Buffer>> mappableBuffersForEagerTransition;
 
     // For Device state tracking only.
     VkCommandPool commandPool = VK_NULL_HANDLE;

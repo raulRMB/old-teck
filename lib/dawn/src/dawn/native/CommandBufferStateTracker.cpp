@@ -30,13 +30,13 @@
 #include <limits>
 #include <optional>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <variant>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/inlined_vector.h"
 #include "dawn/common/Assert.h"
 #include "dawn/common/BitSetIterator.h"
-#include "dawn/common/StackContainer.h"
 #include "dawn/native/BindGroup.h"
 #include "dawn/native/ComputePassEncoder.h"
 #include "dawn/native/ComputePipeline.h"
@@ -99,10 +99,9 @@ struct TextureAliasing {
 using WritableBindingAliasingResult = std::variant<std::monostate, BufferAliasing, TextureAliasing>;
 
 template <typename Return>
-Return FindStorageBufferBindingAliasing(
-    const PipelineLayoutBase* pipelineLayout,
-    const ityp::array<BindGroupIndex, BindGroupBase*, kMaxBindGroups>& bindGroups,
-    const ityp::array<BindGroupIndex, std::vector<uint32_t>, kMaxBindGroups>& dynamicOffsets) {
+Return FindStorageBufferBindingAliasing(const PipelineLayoutBase* pipelineLayout,
+                                        const PerBindGroup<BindGroupBase*>& bindGroups,
+                                        const PerBindGroup<std::vector<uint32_t>>& dynamicOffsets) {
     // If true, returns detailed validation error info. Otherwise simply returns if any binding
     // aliasing is found.
     constexpr bool kProduceDetails = std::is_same_v<Return, WritableBindingAliasingResult>;
@@ -110,14 +109,14 @@ Return FindStorageBufferBindingAliasing(
     // Reduce the bindings array first to only preserve storage buffer bindings that could
     // potentially have ranges overlap.
     // There can at most be 8 storage buffer bindings (in default limits) per shader stage.
-    StackVector<BufferBinding, 8> storageBufferBindingsToCheck;
-    StackVector<std::pair<BindGroupIndex, BindingIndex>, 8> bufferBindingIndices;
+    absl::InlinedVector<BufferBinding, 8> storageBufferBindingsToCheck;
+    absl::InlinedVector<std::pair<BindGroupIndex, BindingIndex>, 8> bufferBindingIndices;
 
     // Reduce the bindings array first to only preserve writable storage texture bindings that could
     // potentially have ranges overlap.
     // There can at most be 8 storage texture bindings (in default limits) per shader stage.
-    StackVector<const TextureViewBase*, 8> storageTextureViewsToCheck;
-    StackVector<std::pair<BindGroupIndex, BindingIndex>, 8> textureBindingIndices;
+    absl::InlinedVector<const TextureViewBase*, 8> storageTextureViewsToCheck;
+    absl::InlinedVector<std::pair<BindGroupIndex, BindingIndex>, 8> textureBindingIndices;
 
     for (BindGroupIndex groupIndex : IterateBitSet(pipelineLayout->GetBindGroupLayoutsMask())) {
         BindGroupLayoutInternalBase* bgl = bindGroups[groupIndex]->GetLayout();
@@ -125,11 +124,12 @@ Return FindStorageBufferBindingAliasing(
         for (BindingIndex bindingIndex{0}; bindingIndex < bgl->GetBufferCount(); ++bindingIndex) {
             const BindingInfo& bindingInfo = bgl->GetBindingInfo(bindingIndex);
             // Buffer bindings are sorted to have smallest of bindingIndex.
-            DAWN_ASSERT(bindingInfo.bindingType == BindingInfoType::Buffer);
+            const BufferBindingInfo& layout =
+                std::get<BufferBindingInfo>(bindingInfo.bindingLayout);
 
             // BindGroup validation already guarantees the buffer usage includes
             // wgpu::BufferUsage::Storage
-            if (bindingInfo.buffer.type != wgpu::BufferBindingType::Storage) {
+            if (layout.type != wgpu::BufferBindingType::Storage) {
                 continue;
             }
 
@@ -142,19 +142,19 @@ Return FindStorageBufferBindingAliasing(
 
             uint64_t adjustedOffset = bufferBinding.offset;
             // Apply dynamic offset if any.
-            if (bindingInfo.buffer.hasDynamicOffset) {
+            if (layout.hasDynamicOffset) {
                 // SetBindGroup validation already guarantees offsets and sizes don't overflow.
                 adjustedOffset += dynamicOffsets[groupIndex][static_cast<uint32_t>(bindingIndex)];
             }
 
-            storageBufferBindingsToCheck->push_back(BufferBinding{
+            storageBufferBindingsToCheck.push_back(BufferBinding{
                 bufferBinding.buffer,
                 adjustedOffset,
                 bufferBinding.size,
             });
 
             if constexpr (kProduceDetails) {
-                bufferBindingIndices->emplace_back(groupIndex, bindingIndex);
+                bufferBindingIndices.emplace_back(groupIndex, bindingIndex);
             }
         }
 
@@ -163,11 +163,12 @@ Return FindStorageBufferBindingAliasing(
              bindingIndex < bgl->GetBindingCount(); ++bindingIndex) {
             const BindingInfo& bindingInfo = bgl->GetBindingInfo(bindingIndex);
 
-            if (bindingInfo.bindingType != BindingInfoType::StorageTexture) {
+            const auto* layout = std::get_if<StorageTextureBindingInfo>(&bindingInfo.bindingLayout);
+            if (layout == nullptr) {
                 continue;
             }
 
-            switch (bindingInfo.storageTexture.access) {
+            switch (layout->access) {
                 case wgpu::StorageTextureAccess::WriteOnly:
                 case wgpu::StorageTextureAccess::ReadWrite:
                     break;
@@ -181,10 +182,10 @@ Return FindStorageBufferBindingAliasing(
             const TextureViewBase* textureView =
                 bindGroups[groupIndex]->GetBindingAsTextureView(bindingIndex);
 
-            storageTextureViewsToCheck->push_back(textureView);
+            storageTextureViewsToCheck.push_back(textureView);
 
             if constexpr (kProduceDetails) {
-                textureBindingIndices->emplace_back(groupIndex, bindingIndex);
+                textureBindingIndices.emplace_back(groupIndex, bindingIndex);
             }
         }
     }
@@ -193,10 +194,10 @@ Return FindStorageBufferBindingAliasing(
     // exists. Given that maxStorageBuffersPerShaderStage is 8, it doesn't seem too bad to do a
     // nested loop check.
     // TODO(dawn:1642): Maybe do algorithm optimization from O(N^2) to O(N*logN).
-    for (size_t i = 0; i < storageBufferBindingsToCheck->size(); i++) {
+    for (size_t i = 0; i < storageBufferBindingsToCheck.size(); i++) {
         const auto& bufferBinding0 = storageBufferBindingsToCheck[i];
 
-        for (size_t j = i + 1; j < storageBufferBindingsToCheck->size(); j++) {
+        for (size_t j = i + 1; j < storageBufferBindingsToCheck.size(); j++) {
             const auto& bufferBinding1 = storageBufferBindingsToCheck[j];
 
             if (bufferBinding0.buffer != bufferBinding1.buffer) {
@@ -224,7 +225,7 @@ Return FindStorageBufferBindingAliasing(
     // Given that maxStorageTexturesPerShaderStage is 8,
     // it doesn't seem too bad to do a nested loop check.
     // TODO(dawn:1642): Maybe do algorithm optimization from O(N^2) to O(N*logN).
-    for (size_t i = 0; i < storageTextureViewsToCheck->size(); i++) {
+    for (size_t i = 0; i < storageTextureViewsToCheck.size(); i++) {
         const TextureViewBase* textureView0 = storageTextureViewsToCheck[i];
 
         DAWN_ASSERT(textureView0->GetAspects() == Aspect::Color);
@@ -234,7 +235,7 @@ Return FindStorageBufferBindingAliasing(
         uint32_t baseArrayLayer0 = textureView0->GetBaseArrayLayer();
         uint32_t arrayLayerCount0 = textureView0->GetLayerCount();
 
-        for (size_t j = i + 1; j < storageTextureViewsToCheck->size(); j++) {
+        for (size_t j = i + 1; j < storageTextureViewsToCheck.size(); j++) {
             const TextureViewBase* textureView1 = storageTextureViewsToCheck[j];
 
             if (textureView0->GetTexture() != textureView1->GetTexture()) {
@@ -282,13 +283,13 @@ bool TextureViewsMatch(const TextureViewBase* a, const TextureViewBase* b) {
            a->GetLayerCount() == b->GetLayerCount();
 }
 
-using VectorOfTextureViews = StackVector<const TextureViewBase*, 8>;
+using VectorOfTextureViews = absl::InlinedVector<const TextureViewBase*, 8>;
 
 bool TextureViewsAllMatch(const VectorOfTextureViews& views) {
-    DAWN_ASSERT(!views->empty());
+    DAWN_ASSERT(!views.empty());
 
     const TextureViewBase* first = views[0];
-    for (size_t i = 1; i < views->size(); ++i) {
+    for (size_t i = 1; i < views.size(); ++i) {
         if (!TextureViewsMatch(first, views[i])) {
             return false;
         }
@@ -350,8 +351,8 @@ MaybeError CommandBufferStateTracker::ValidateCanDrawIndexed() {
 }
 
 MaybeError CommandBufferStateTracker::ValidateNoDifferentTextureViewsOnSameTexture() {
-    // TODO(dawn:1855): Look into optimizations as unordered_map does many allocations
-    std::unordered_map<const TextureBase*, VectorOfTextureViews> textureToViews;
+    // TODO(dawn:1855): Look into optimizations as flat_hash_map does many allocations
+    absl::flat_hash_map<const TextureBase*, VectorOfTextureViews> textureToViews;
 
     for (BindGroupIndex groupIndex :
          IterateBitSet(mLastPipelineLayout->GetBindGroupLayoutsMask())) {
@@ -360,15 +361,15 @@ MaybeError CommandBufferStateTracker::ValidateNoDifferentTextureViewsOnSameTextu
 
         for (BindingIndex bindingIndex{0}; bindingIndex < bgl->GetBindingCount(); ++bindingIndex) {
             const BindingInfo& bindingInfo = bgl->GetBindingInfo(bindingIndex);
-            if (bindingInfo.bindingType != BindingInfoType::Texture &&
-                bindingInfo.bindingType != BindingInfoType::StorageTexture) {
+            if (!std::holds_alternative<TextureBindingInfo>(bindingInfo.bindingLayout) &&
+                !std::holds_alternative<StorageTextureBindingInfo>(bindingInfo.bindingLayout)) {
                 continue;
             }
 
             const TextureViewBase* textureViewBase =
                 bindGroup->GetBindingAsTextureView(bindingIndex);
 
-            textureToViews[textureViewBase->GetTexture()]->push_back(textureViewBase);
+            textureToViews[textureViewBase->GetTexture()].push_back(textureViewBase);
         }
     }
 
@@ -379,8 +380,7 @@ MaybeError CommandBufferStateTracker::ValidateNoDifferentTextureViewsOnSameTextu
             !TextureViewsAllMatch(views),
             "In compatibility mode, %s must not have different views in a single draw/dispatch "
             "command. texture views: %s",
-            texture,
-            ityp::span<size_t, const TextureViewBase* const>(views->data(), views->size()));
+            texture, ityp::span<size_t, const TextureViewBase* const>(views.data(), views.size()));
     }
 
     return {};
@@ -397,10 +397,10 @@ MaybeError CommandBufferStateTracker::ValidateBufferInRangeForVertexBuffer(uint3
 
     RenderPipelineBase* lastRenderPipeline = GetRenderPipeline();
 
-    const ityp::bitset<VertexBufferSlot, kMaxVertexBuffers>& vertexBufferSlotsUsedAsVertexBuffer =
-        lastRenderPipeline->GetVertexBufferSlotsUsedAsVertexBuffer();
+    const auto& vertexBuffersUsedAsVertexBuffer =
+        lastRenderPipeline->GetVertexBuffersUsedAsVertexBuffer();
 
-    for (auto usedSlotVertex : IterateBitSet(vertexBufferSlotsUsedAsVertexBuffer)) {
+    for (auto usedSlotVertex : IterateBitSet(vertexBuffersUsedAsVertexBuffer)) {
         const VertexBufferInfo& vertexBuffer = lastRenderPipeline->GetVertexBuffer(usedSlotVertex);
         uint64_t arrayStride = vertexBuffer.arrayStride;
         uint64_t bufferSize = mVertexBufferSizes[usedSlotVertex];
@@ -443,10 +443,10 @@ MaybeError CommandBufferStateTracker::ValidateBufferInRangeForInstanceBuffer(
 
     RenderPipelineBase* lastRenderPipeline = GetRenderPipeline();
 
-    const ityp::bitset<VertexBufferSlot, kMaxVertexBuffers>& vertexBufferSlotsUsedAsInstanceBuffer =
-        lastRenderPipeline->GetVertexBufferSlotsUsedAsInstanceBuffer();
+    const auto& vertexBuffersUsedAsInstanceBuffer =
+        lastRenderPipeline->GetVertexBuffersUsedAsInstanceBuffer();
 
-    for (auto usedSlotInstance : IterateBitSet(vertexBufferSlotsUsedAsInstanceBuffer)) {
+    for (auto usedSlotInstance : IterateBitSet(vertexBuffersUsedAsInstanceBuffer)) {
         const VertexBufferInfo& vertexBuffer =
             lastRenderPipeline->GetVertexBuffer(usedSlotInstance);
         uint64_t arrayStride = vertexBuffer.arrayStride;
@@ -523,7 +523,8 @@ void CommandBufferStateTracker::RecomputeLazyAspects(ValidationAspects aspects) 
 
         for (BindGroupIndex i : IterateBitSet(mLastPipelineLayout->GetBindGroupLayoutsMask())) {
             if (mBindgroups[i] == nullptr ||
-                mLastPipelineLayout->GetBindGroupLayout(i) != mBindgroups[i]->GetLayout() ||
+                !mLastPipelineLayout->GetFrontendBindGroupLayout(i)->IsLayoutEqual(
+                    mBindgroups[i]->GetFrontendLayout()) ||
                 FindFirstUndersizedBuffer(mBindgroups[i]->GetUnverifiedBufferSizes(),
                                           (*mMinBufferSizes)[i])
                     .has_value()) {
@@ -548,9 +549,8 @@ void CommandBufferStateTracker::RecomputeLazyAspects(ValidationAspects aspects) 
     if (aspects[VALIDATION_ASPECT_VERTEX_BUFFERS]) {
         RenderPipelineBase* lastRenderPipeline = GetRenderPipeline();
 
-        const ityp::bitset<VertexBufferSlot, kMaxVertexBuffers>& requiredVertexBuffers =
-            lastRenderPipeline->GetVertexBufferSlotsUsed();
-        if (IsSubset(requiredVertexBuffers, mVertexBufferSlotsUsed)) {
+        const auto& requiredVertexBuffers = lastRenderPipeline->GetVertexBuffersUsed();
+        if (IsSubset(requiredVertexBuffers, mVertexBuffersUsed)) {
             mAspects.set(VALIDATION_ASPECT_VERTEX_BUFFERS);
         }
     }
@@ -601,8 +601,8 @@ MaybeError CommandBufferStateTracker::CheckMissingAspects(ValidationAspects aspe
 
     if (aspects[VALIDATION_ASPECT_VERTEX_BUFFERS]) {
         // Try to be helpful by finding one missing vertex buffer to surface in the error message.
-        const ityp::bitset<VertexBufferSlot, kMaxVertexBuffers> missingVertexBuffers =
-            GetRenderPipeline()->GetVertexBufferSlotsUsed() & ~mVertexBufferSlotsUsed;
+        const auto missingVertexBuffers =
+            GetRenderPipeline()->GetVertexBuffersUsed() & ~mVertexBuffersUsed;
         DAWN_ASSERT(missingVertexBuffers.any());
 
         VertexBufferSlot firstMissing = ityp::Sub(GetHighestBitIndexPlusOne(missingVertexBuffers),
@@ -612,6 +612,8 @@ MaybeError CommandBufferStateTracker::CheckMissingAspects(ValidationAspects aspe
     }
 
     if (aspects[VALIDATION_ASPECT_BIND_GROUPS]) {
+        // TODO(crbug.com/dawn/2476): Validate TextureViewDescriptor YCbCrInfo matches with that in
+        // SamplerDescriptor.
         for (BindGroupIndex i : IterateBitSet(mLastPipelineLayout->GetBindGroupLayoutsMask())) {
             DAWN_ASSERT(HasPipeline());
 
@@ -674,11 +676,12 @@ MaybeError CommandBufferStateTracker::CheckMissingAspects(ValidationAspects aspe
                     mBindgroups[i]->GetUnverifiedBufferSizes()[packedIndex.value()];
                 uint64_t minBufferSize = (*mMinBufferSizes)[i][packedIndex.value()];
 
+                const auto& layout = std::get<BufferBindingInfo>(bindingInfo.bindingLayout);
                 return DAWN_VALIDATION_ERROR(
                     "%s bound with size %u at group %u, binding %u is too small. The pipeline (%s) "
                     "requires a buffer binding which is at least %u bytes.%s",
                     buffer, bufferSize, i, bindingNumber, mLastPipeline, minBufferSize,
-                    (bindingInfo.buffer.type == wgpu::BufferBindingType::Uniform
+                    (layout.type == wgpu::BufferBindingType::Uniform
                          ? " This binding is a uniform buffer binding. It is padded to a multiple "
                            "of 16 bytes, and as a result may be larger than the associated data in "
                            "the shader source."
@@ -751,20 +754,23 @@ void CommandBufferStateTracker::SetBindGroup(BindGroupIndex index,
     mAspects.reset(VALIDATION_ASPECT_BIND_GROUPS);
 }
 
-void CommandBufferStateTracker::SetIndexBuffer(wgpu::IndexFormat format, uint64_t size) {
+void CommandBufferStateTracker::SetIndexBuffer(wgpu::IndexFormat format,
+                                               uint64_t offset,
+                                               uint64_t size) {
     mIndexBufferSet = true;
     mIndexFormat = format;
     mIndexBufferSize = size;
+    mIndexBufferOffset = offset;
 }
 
 void CommandBufferStateTracker::UnsetVertexBuffer(VertexBufferSlot slot) {
-    mVertexBufferSlotsUsed.set(slot, false);
+    mVertexBuffersUsed.set(slot, false);
     mVertexBufferSizes[slot] = 0;
     mAspects.reset(VALIDATION_ASPECT_VERTEX_BUFFERS);
 }
 
 void CommandBufferStateTracker::SetVertexBuffer(VertexBufferSlot slot, uint64_t size) {
-    mVertexBufferSlotsUsed.set(slot);
+    mVertexBuffersUsed.set(slot);
     mVertexBufferSizes[slot] = size;
 }
 
@@ -812,6 +818,17 @@ wgpu::IndexFormat CommandBufferStateTracker::GetIndexFormat() const {
 
 uint64_t CommandBufferStateTracker::GetIndexBufferSize() const {
     return mIndexBufferSize;
+}
+
+uint64_t CommandBufferStateTracker::GetIndexBufferOffset() const {
+    return mIndexBufferOffset;
+}
+
+void CommandBufferStateTracker::End() {
+    mLastPipelineLayout = nullptr;
+    mLastPipeline = nullptr;
+    mMinBufferSizes = nullptr;
+    mBindgroups.fill(nullptr);
 }
 
 }  // namespace dawn::native

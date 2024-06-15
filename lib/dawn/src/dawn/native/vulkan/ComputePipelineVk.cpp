@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PipelineCacheVk.h"
@@ -46,11 +46,11 @@ namespace dawn::native::vulkan {
 // static
 Ref<ComputePipeline> ComputePipeline::CreateUninitialized(
     Device* device,
-    const ComputePipelineDescriptor* descriptor) {
+    const UnpackedPtr<ComputePipelineDescriptor>& descriptor) {
     return AcquireRef(new ComputePipeline(device, descriptor));
 }
 
-MaybeError ComputePipeline::Initialize() {
+MaybeError ComputePipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     const PipelineLayout* layout = ToBackend(GetLayout());
 
@@ -79,13 +79,14 @@ MaybeError ComputePipeline::Initialize() {
         module->GetHandleAndSpirv(
             SingleShaderStage::Compute, computeStage, layout,
             /*clampFragDepth*/ false,
+            /*emitPointSize*/ false,
             /* maxSubgroupSizeForFullSubgroups */
             IsFullSubgroupsRequired()
                 ? std::make_optional(device->GetLimits().experimentalSubgroupLimits.maxSubgroupSize)
                 : std::nullopt));
 
     createInfo.stage.module = moduleAndSpirv.module;
-    createInfo.stage.pName = moduleAndSpirv.remappedEntryPoint;
+    createInfo.stage.pName = moduleAndSpirv.remappedEntryPoint.c_str();
 
     if (IsFullSubgroupsRequired()) {
         // Workgroup size validation is handled in ValidateComputeStageWorkgroupSize when compiling
@@ -98,9 +99,9 @@ MaybeError ComputePipeline::Initialize() {
 
     createInfo.stage.pSpecializationInfo = nullptr;
 
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT subgroupSizeInfo = {};
     PNextChainBuilder stageExtChain(&createInfo.stage);
 
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT subgroupSizeInfo = {};
     uint32_t computeSubgroupSize = device->GetComputeSubgroupSize();
     // If experimental full subgroups is required, pipeline is created with varying subgroup size
     // enabled, and thus do not use explicit subgroup size control.
@@ -158,15 +159,6 @@ void ComputePipeline::DestroyImpl() {
 
 VkPipeline ComputePipeline::GetHandle() const {
     return mHandle;
-}
-
-void ComputePipeline::InitializeAsync(Ref<ComputePipelineBase> computePipeline,
-                                      WGPUCreateComputePipelineAsyncCallback callback,
-                                      void* userdata) {
-    std::unique_ptr<CreateComputePipelineAsyncTask> asyncTask =
-        std::make_unique<CreateComputePipelineAsyncTask>(std::move(computePipeline), callback,
-                                                         userdata);
-    CreateComputePipelineAsyncTask::RunAsync(std::move(asyncTask));
 }
 
 }  // namespace dawn::native::vulkan

@@ -102,7 +102,6 @@ fn f() {
 }
 )";
 
-    // TODO(bclayton): Optimize this case:
     // This output is not as efficient as it could be.
     // We only actually need to hoist the inner-most array to a `var`
     // (`var_for_index`), as later indexing operations will be working with
@@ -463,6 +462,76 @@ fn f() {
   }
 }
 )";
+
+    ast::transform::DataMap data;
+    auto got = Run<VarForDynamicIndex>(src, data);
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_F(VarForDynamicIndexTest, VarArrayIndexDynamic) {
+    auto* src = R"(
+fn f() {
+  var i : i32;
+  var p = array<i32, 4>(1, 2, 3, 4);
+  let x = p[i];
+}
+)";
+
+    auto* expect = src;
+
+    ast::transform::DataMap data;
+    auto got = Run<VarForDynamicIndex>(src, data);
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_F(VarForDynamicIndexTest, VarMatrixIndexDynamic) {
+    auto* src = R"(
+fn f() {
+  var i : i32;
+  var p = mat2x2(1.0, 2.0, 3.0, 4.0);
+  let x = p[i];
+}
+)";
+
+    auto* expect = src;
+
+    ast::transform::DataMap data;
+    auto got = Run<VarForDynamicIndex>(src, data);
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_F(VarForDynamicIndexTest, VarArrayIndexDynamic_ViaPointerIndex) {
+    auto* src = R"(
+fn f() {
+  var i : i32;
+  var v = array<i32, 4>(1, 2, 3, 4);
+  let p = &(v);
+  let x = p[i];
+}
+)";
+
+    auto* expect = src;
+
+    ast::transform::DataMap data;
+    auto got = Run<VarForDynamicIndex>(src, data);
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_F(VarForDynamicIndexTest, VarMatrixIndexDynamic_ViaPointerIndex) {
+    auto* src = R"(
+fn f() {
+  var i : i32;
+  var v = mat2x2(1.0, 2.0, 3.0, 4.0);
+  let p = &(v);
+  let x = p[i];
+}
+)";
+
+    auto* expect = src;
 
     ast::transform::DataMap data;
     auto got = Run<VarForDynamicIndex>(src, data);

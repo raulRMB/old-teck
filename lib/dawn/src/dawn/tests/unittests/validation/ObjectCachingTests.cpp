@@ -40,6 +40,10 @@ using testing::Not;
 // These tests works assuming Dawn Native's object deduplication. Comparing the pointer is
 // exploiting an implementation detail of Dawn Native.
 class ObjectCachingTest : public ValidationTest {
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::StaticSamplers};
+    }
+
     void SetUp() override {
         ValidationTest::SetUp();
         DAWN_SKIP_TEST_IF(UsesWire());
@@ -114,6 +118,73 @@ TEST_F(ObjectCachingTest, BindGroupLayoutViewDimension) {
     EXPECT_THAT(bgl, BindGroupLayoutEq(sameBgl));
 }
 
+// Test that BindGroupLayouts with a static sampler entry are correctly
+// deduplicated.
+TEST_F(ObjectCachingTest, BindGroupLayoutStaticSamplerDeduplication) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.addressModeU = wgpu::AddressMode::ClampToEdge;
+    staticSamplerBinding.sampler = device.CreateSampler(&samplerDesc);
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::SamplerDescriptor otherSamplerDesc;
+    otherSamplerDesc.addressModeU = wgpu::AddressMode::Repeat;
+    wgpu::Sampler otherSampler = device.CreateSampler(&otherSamplerDesc);
+
+    EXPECT_NE(staticSamplerBinding.sampler.Get(), otherSampler.Get());
+
+    wgpu::BindGroupLayoutEntry otherBinding = {};
+    otherBinding.binding = 0;
+    wgpu::StaticSamplerBindingLayout otherStaticSamplerBinding = {};
+    otherStaticSamplerBinding.sampler = otherSampler;
+    otherBinding.nextInChain = &otherStaticSamplerBinding;
+
+    EXPECT_NE(staticSamplerBinding.sampler.Get(), otherStaticSamplerBinding.sampler.Get());
+
+    wgpu::BindGroupLayoutDescriptor otherDesc = {};
+    otherDesc.entryCount = 1;
+    otherDesc.entries = &otherBinding;
+
+    wgpu::BindGroupLayout bgl = device.CreateBindGroupLayout(&desc);
+    wgpu::BindGroupLayout sameBgl = device.CreateBindGroupLayout(&desc);
+    wgpu::BindGroupLayout otherStaticSamplerBgl = device.CreateBindGroupLayout(&otherDesc);
+    wgpu::BindGroupLayout otherBgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::Filtering}});
+
+    EXPECT_THAT(bgl, BindGroupLayoutEq(sameBgl));
+    EXPECT_THAT(bgl, Not(BindGroupLayoutEq(otherStaticSamplerBgl)));
+    EXPECT_THAT(bgl, Not(BindGroupLayoutEq(otherBgl)));
+}
+
+// Test that BindGroupLayouts with a static sampler entry keep a reference
+// to the static sampler, such that if a sampler is created from the same
+// params the same object will be returned.
+TEST_F(ObjectCachingTest, BindGroupLayoutKeepsRefToStaticSampler) {
+    auto sampler1 = device.CreateSampler();
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = sampler1;
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::BindGroupLayout bgl = device.CreateBindGroupLayout(&desc);
+
+    auto samplerRawPtr = sampler1.Get();
+    sampler1 = nullptr;
+    auto sampler2 = device.CreateSampler();
+    EXPECT_EQ(samplerRawPtr, sampler2.Get());
+}
+
 // Test that PipelineLayouts are correctly deduplicated.
 TEST_F(ObjectCachingTest, PipelineLayoutDeduplication) {
     wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
@@ -172,7 +243,6 @@ TEST_F(ObjectCachingTest, ComputePipelineDeduplicationOnShaderModule) {
     wgpu::PipelineLayout layout = utils::MakeBasicPipelineLayout(device, nullptr);
 
     wgpu::ComputePipelineDescriptor desc;
-    desc.compute.entryPoint = "main";
     desc.layout = layout;
 
     desc.compute.module = module;
@@ -200,7 +270,6 @@ TEST_F(ObjectCachingTest, ComputePipelineDeduplicationOnOverrides) {
     wgpu::PipelineLayout layout = utils::MakeBasicPipelineLayout(device, nullptr);
 
     wgpu::ComputePipelineDescriptor desc;
-    desc.compute.entryPoint = "main";
     desc.layout = layout;
     desc.compute.module = module;
 
@@ -243,7 +312,6 @@ TEST_F(ObjectCachingTest, ComputePipelineDeduplicationOnLayout) {
     EXPECT_EQ(pl.Get(), samePl.Get());
 
     wgpu::ComputePipelineDescriptor desc;
-    desc.compute.entryPoint = "main";
     desc.compute.module = utils::CreateShaderModule(device, R"(
             var<workgroup> i : u32;
             @compute @workgroup_size(1) fn main() {
@@ -319,6 +387,7 @@ TEST_F(ObjectCachingTest, RenderPipelineDeduplicationOnVertexModule) {
     EXPECT_EQ(module.Get(), sameModule.Get());
 
     utils::ComboRenderPipelineDescriptor desc;
+    desc.layout = utils::MakeBasicPipelineLayout(device, nullptr);
     desc.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
     desc.cFragment.module = utils::CreateShaderModule(device, R"(
             @fragment fn main() {
@@ -354,6 +423,7 @@ TEST_F(ObjectCachingTest, RenderPipelineDeduplicationOnFragmentModule) {
     EXPECT_EQ(module.Get(), sameModule.Get());
 
     utils::ComboRenderPipelineDescriptor desc;
+    desc.layout = utils::MakeBasicPipelineLayout(device, nullptr);
     desc.vertex.module = utils::CreateShaderModule(device, R"(
         @vertex fn main() -> @builtin(position) vec4f {
             return vec4f(0.0, 0.0, 0.0, 0.0);
@@ -385,10 +455,9 @@ TEST_F(ObjectCachingTest, RenderPipelineDeduplicationOnOverrides) {
         })");
 
     utils::ComboRenderPipelineDescriptor desc;
+    desc.layout = utils::MakeBasicPipelineLayout(device, nullptr);
     desc.vertex.module = module;
-    desc.vertex.entryPoint = "vertexMain";
     desc.cFragment.module = module;
-    desc.cFragment.entryPoint = "fragmentMain";
     desc.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
 
     std::vector<wgpu::ConstantEntry> constants{{nullptr, "a", 0.5}};

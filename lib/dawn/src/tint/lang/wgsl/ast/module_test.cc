@@ -26,7 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gmock/gmock.h"
-#include "gtest/gtest-spi.h"
 #include "src/tint/lang/wgsl/ast/helper_test.h"
 #include "src/tint/lang/wgsl/program/clone_context.h"
 #include "src/tint/lang/wgsl/resolver/resolve.h"
@@ -53,7 +52,7 @@ TEST_F(ModuleTest, LookupFunctionMissing) {
 }
 
 TEST_F(ModuleTest, Assert_Null_GlobalVariable) {
-    EXPECT_FATAL_FAILURE(
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder builder;
             builder.AST().AddGlobalVariable(nullptr);
@@ -62,7 +61,7 @@ TEST_F(ModuleTest, Assert_Null_GlobalVariable) {
 }
 
 TEST_F(ModuleTest, Assert_Null_TypeDecl) {
-    EXPECT_FATAL_FAILURE(
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder builder;
             builder.AST().AddTypeDecl(nullptr);
@@ -71,7 +70,7 @@ TEST_F(ModuleTest, Assert_Null_TypeDecl) {
 }
 
 TEST_F(ModuleTest, Assert_DifferentGenerationID_Function) {
-    EXPECT_FATAL_FAILURE(
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder b1;
             ProgramBuilder b2;
@@ -82,7 +81,7 @@ TEST_F(ModuleTest, Assert_DifferentGenerationID_Function) {
 }
 
 TEST_F(ModuleTest, Assert_DifferentGenerationID_GlobalVariable) {
-    EXPECT_FATAL_FAILURE(
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder b1;
             ProgramBuilder b2;
@@ -92,7 +91,7 @@ TEST_F(ModuleTest, Assert_DifferentGenerationID_GlobalVariable) {
 }
 
 TEST_F(ModuleTest, Assert_Null_Function) {
-    EXPECT_FATAL_FAILURE(
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder builder;
             builder.AST().AddFunction(nullptr);
@@ -147,7 +146,7 @@ TEST_F(ModuleTest, CloneOrder) {
 TEST_F(ModuleTest, Directives) {
     auto* enable_1 = Enable(wgsl::Extension::kF16);
     auto* diagnostic_1 = DiagnosticDirective(wgsl::DiagnosticSeverity::kWarning, "foo");
-    auto* enable_2 = Enable(wgsl::Extension::kChromiumExperimentalFullPtrParameters);
+    auto* enable_2 = Enable(wgsl::Extension::kChromiumExperimentalPixelLocal);
     auto* diagnostic_2 = DiagnosticDirective(wgsl::DiagnosticSeverity::kOff, "bar");
 
     Program program(std::move(*this));

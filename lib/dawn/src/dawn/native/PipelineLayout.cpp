@@ -31,9 +31,13 @@
 #include <map>
 #include <utility>
 
+#include "absl/container/inlined_vector.h"
 #include "dawn/common/Assert.h"
 #include "dawn/common/BitSetIterator.h"
+#include "dawn/common/Enumerator.h"
+#include "dawn/common/MatchVariant.h"
 #include "dawn/common/Numeric.h"
+#include "dawn/common/Range.h"
 #include "dawn/common/ityp_stack_vec.h"
 #include "dawn/native/BindGroupLayout.h"
 #include "dawn/native/ChainUtils.h"
@@ -45,14 +49,16 @@
 
 namespace dawn::native {
 
-MaybeError ValidatePipelineLayoutDescriptor(DeviceBase* device,
-                                            const PipelineLayoutDescriptor* descriptor,
-                                            PipelineCompatibilityToken pipelineCompatibilityToken) {
+ResultOrError<UnpackedPtr<PipelineLayoutDescriptor>> ValidatePipelineLayoutDescriptor(
+    DeviceBase* device,
+    const PipelineLayoutDescriptor* descriptor,
+    PipelineCompatibilityToken pipelineCompatibilityToken) {
+    UnpackedPtr<PipelineLayoutDescriptor> unpacked;
+    DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(descriptor));
+
     // Validation for any pixel local storage.
-    const PipelineLayoutPixelLocalStorage* pls = nullptr;
-    FindInChain(descriptor->nextInChain, &pls);
-    if (pls != nullptr) {
-        StackVector<StorageAttachmentInfoForValidation, 4> attachments;
+    if (auto* pls = unpacked.Get<PipelineLayoutPixelLocalStorage>()) {
+        absl::InlinedVector<StorageAttachmentInfoForValidation, 4> attachments;
         for (size_t i = 0; i < pls->storageAttachmentCount; i++) {
             const PipelineLayoutStorageAttachment& attachment = pls->storageAttachments[i];
 
@@ -63,11 +69,11 @@ MaybeError ValidatePipelineLayoutDescriptor(DeviceBase* device,
                             "storageAttachments[%i]'s format (%s) cannot be used with %s.", i,
                             format->format, wgpu::TextureUsage::StorageAttachment);
 
-            attachments->push_back({attachment.offset, attachment.format});
+            attachments.push_back({attachment.offset, attachment.format});
         }
 
         DAWN_TRY(ValidatePLSInfo(device, pls->totalPixelLocalStorageSize,
-                                 {attachments->data(), attachments->size()}));
+                                 {attachments.data(), attachments.size()}));
     }
 
     DAWN_INVALID_IF(descriptor->bindGroupLayoutCount > kMaxBindGroups,
@@ -89,7 +95,7 @@ MaybeError ValidatePipelineLayoutDescriptor(DeviceBase* device,
     }
 
     DAWN_TRY(ValidateBindingCounts(device->GetLimits(), bindingCounts));
-    return {};
+    return unpacked;
 }
 
 StageAndDescriptor::StageAndDescriptor(SingleShaderStage shaderStage,
@@ -106,21 +112,20 @@ StageAndDescriptor::StageAndDescriptor(SingleShaderStage shaderStage,
 // PipelineLayoutBase
 
 PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
-                                       const PipelineLayoutDescriptor* descriptor,
+                                       const UnpackedPtr<PipelineLayoutDescriptor>& descriptor,
                                        ApiObjectBase::UntrackedByDeviceTag tag)
     : ApiObjectBase(device, descriptor->label) {
     DAWN_ASSERT(descriptor->bindGroupLayoutCount <= kMaxBindGroups);
-    for (BindGroupIndex group(0);
-         group < BindGroupIndex(checked_cast<uint32_t>(descriptor->bindGroupLayoutCount));
-         ++group) {
-        mBindGroupLayouts[group] = descriptor->bindGroupLayouts[static_cast<uint32_t>(group)];
+
+    auto bgls = ityp::SpanFromUntyped<BindGroupIndex>(descriptor->bindGroupLayouts,
+                                                      descriptor->bindGroupLayoutCount);
+    for (auto [group, bgl] : Enumerate(bgls)) {
+        mBindGroupLayouts[group] = bgl;
         mMask.set(group);
     }
 
     // Gather the PLS information.
-    const PipelineLayoutPixelLocalStorage* pls = nullptr;
-    FindInChain(descriptor->nextInChain, &pls);
-    if (pls != nullptr) {
+    if (auto* pls = descriptor.Get<PipelineLayoutPixelLocalStorage>()) {
         mHasPLS = true;
         mStorageAttachmentSlots = std::vector<wgpu::TextureFormat>(
             pls->totalPixelLocalStorageSize / kPLSSlotByteSize, wgpu::TextureFormat::Undefined);
@@ -132,7 +137,7 @@ PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
 }
 
 PipelineLayoutBase::PipelineLayoutBase(DeviceBase* device,
-                                       const PipelineLayoutDescriptor* descriptor)
+                                       const UnpackedPtr<PipelineLayoutDescriptor>& descriptor)
     : PipelineLayoutBase(device, descriptor, kUntrackedByDevice) {
     GetObjectTrackingList()->Track(this);
 }
@@ -149,8 +154,8 @@ void PipelineLayoutBase::DestroyImpl() {
 }
 
 // static
-PipelineLayoutBase* PipelineLayoutBase::MakeError(DeviceBase* device, const char* label) {
-    return new PipelineLayoutBase(device, ObjectBase::kError, label);
+Ref<PipelineLayoutBase> PipelineLayoutBase::MakeError(DeviceBase* device, const char* label) {
+    return AcquireRef(new PipelineLayoutBase(device, ObjectBase::kError, label));
 }
 
 // static
@@ -229,57 +234,34 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
            const ExternalTextureBindingLayout* externalTextureBindingEntry)
         -> BindGroupLayoutEntry {
         BindGroupLayoutEntry entry = {};
-        switch (shaderBinding.bindingType) {
-            case BindingInfoType::Buffer:
-                entry.buffer.type = shaderBinding.buffer.type;
-                entry.buffer.hasDynamicOffset = shaderBinding.buffer.hasDynamicOffset;
-                entry.buffer.minBindingSize = shaderBinding.buffer.minBindingSize;
-                break;
-            case BindingInfoType::Sampler:
-                if (shaderBinding.sampler.isComparison) {
-                    entry.sampler.type = wgpu::SamplerBindingType::Comparison;
-                } else {
-                    entry.sampler.type = wgpu::SamplerBindingType::Filtering;
+
+        MatchVariant(
+            shaderBinding.bindingInfo,
+            [&](const BufferBindingInfo& bindingInfo) {
+                entry.buffer.type = bindingInfo.type;
+                entry.buffer.minBindingSize = bindingInfo.minBindingSize;
+            },
+            [&](const SamplerBindingInfo& bindingInfo) { entry.sampler.type = bindingInfo.type; },
+            [&](const TextureBindingInfo& bindingInfo) {
+                entry.texture.sampleType = bindingInfo.sampleType;
+                entry.texture.viewDimension = bindingInfo.viewDimension;
+                entry.texture.multisampled = bindingInfo.multisampled;
+
+                // Default to UnfilterableFloat for texture_Nd<f32> as it will be promoted to Float
+                // if it is used with a sampler.
+                if (entry.texture.sampleType == wgpu::TextureSampleType::Float) {
+                    entry.texture.sampleType = wgpu::TextureSampleType::UnfilterableFloat;
                 }
-                break;
-            case BindingInfoType::Texture:
-                switch (shaderBinding.texture.compatibleSampleTypes) {
-                    case SampleTypeBit::Depth:
-                        entry.texture.sampleType = wgpu::TextureSampleType::Depth;
-                        break;
-                    case SampleTypeBit::Sint:
-                        entry.texture.sampleType = wgpu::TextureSampleType::Sint;
-                        break;
-                    case SampleTypeBit::Uint:
-                        entry.texture.sampleType = wgpu::TextureSampleType::Uint;
-                        break;
-                    case SampleTypeBit::Float:
-                    case SampleTypeBit::UnfilterableFloat:
-                    case SampleTypeBit::None:
-                        DAWN_UNREACHABLE();
-                        break;
-                    default:
-                        if (shaderBinding.texture.compatibleSampleTypes ==
-                            (SampleTypeBit::Float | SampleTypeBit::UnfilterableFloat)) {
-                            // Default to UnfilterableFloat. It will be promoted to Float if it
-                            // is used with a sampler.
-                            entry.texture.sampleType = wgpu::TextureSampleType::UnfilterableFloat;
-                        } else {
-                            DAWN_UNREACHABLE();
-                        }
-                }
-                entry.texture.viewDimension = shaderBinding.texture.viewDimension;
-                entry.texture.multisampled = shaderBinding.texture.multisampled;
-                break;
-            case BindingInfoType::StorageTexture:
-                entry.storageTexture.access = shaderBinding.storageTexture.access;
-                entry.storageTexture.format = shaderBinding.storageTexture.format;
-                entry.storageTexture.viewDimension = shaderBinding.storageTexture.viewDimension;
-                break;
-            case BindingInfoType::ExternalTexture:
+            },
+            [&](const StorageTextureBindingInfo& bindingInfo) {
+                entry.storageTexture.access = bindingInfo.access;
+                entry.storageTexture.format = bindingInfo.format;
+                entry.storageTexture.viewDimension = bindingInfo.viewDimension;
+            },
+            [&](const ExternalTextureBindingInfo&) {
                 entry.nextInChain = externalTextureBindingEntry;
-                break;
-        }
+            });
+
         return entry;
     };
 
@@ -310,8 +292,7 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
         device->GetNextPipelineCompatibilityToken();
 
     // Data which BindGroupLayoutDescriptor will point to for creation
-    ityp::array<BindGroupIndex, std::map<BindingNumber, BindGroupLayoutEntry>, kMaxBindGroups>
-        entryData = {};
+    PerBindGroup<std::map<BindingNumber, BindGroupLayoutEntry>> entryData = {};
 
     // External texture binding layouts are chained structs that are set as a pointer within
     // the bind group layout entry. We declare an entry here so that it can be used when needed
@@ -329,8 +310,8 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
             metadata.usesPixelLocal,
             "Implicit layouts are not supported for entry-points using `pixel_local` blocks.");
 
-        for (BindGroupIndex group(0); group < metadata.bindings.size(); ++group) {
-            for (const auto& [bindingNumber, shaderBinding] : metadata.bindings[group]) {
+        for (auto [group, groupBindings] : Enumerate(metadata.bindings)) {
+            for (const auto& [bindingNumber, shaderBinding] : groupBindings) {
                 // Create the BindGroupLayoutEntry
                 BindGroupLayoutEntry entry =
                     ConvertMetadataToEntry(shaderBinding, &externalTextureBindingLayout);
@@ -363,18 +344,18 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
     // TODO(cwallez@chromium.org): remove this when Dawn knows that empty and null BGL are the
     // same.
     BindGroupIndex pipelineBGLCount = BindGroupIndex(0);
-    ityp::array<BindGroupIndex, Ref<BindGroupLayoutBase>, kMaxBindGroups> bindGroupLayouts = {};
-    for (BindGroupIndex group(0); group < kMaxBindGroupsTyped; ++group) {
+    PerBindGroup<Ref<BindGroupLayoutBase>> bindGroupLayouts = {};
+    for (auto group : Range(kMaxBindGroupsTyped)) {
         DAWN_TRY_ASSIGN(bindGroupLayouts[group],
                         CreateBGL(device, entryData[group], pipelineCompatibilityToken));
         if (entryData[group].size() != 0) {
-            pipelineBGLCount = group + BindGroupIndex(1);
+            pipelineBGLCount = ityp::PlusOne(group);
         }
     }
 
     // Create the deduced pipeline layout, validating if it is valid.
-    ityp::array<BindGroupIndex, BindGroupLayoutBase*, kMaxBindGroups> bgls = {};
-    for (BindGroupIndex group(0); group < pipelineBGLCount; ++group) {
+    PerBindGroup<BindGroupLayoutBase*> bgls = {};
+    for (auto group : Range(pipelineBGLCount)) {
         bgls[group] = bindGroupLayouts[group].Get();
     }
 
@@ -382,10 +363,8 @@ ResultOrError<Ref<PipelineLayoutBase>> PipelineLayoutBase::CreateDefault(
     desc.bindGroupLayouts = bgls.data();
     desc.bindGroupLayoutCount = static_cast<uint32_t>(pipelineBGLCount);
 
-    DAWN_TRY(ValidatePipelineLayoutDescriptor(device, &desc, pipelineCompatibilityToken));
-
     Ref<PipelineLayoutBase> result;
-    DAWN_TRY_ASSIGN(result, device->GetOrCreatePipelineLayout(&desc));
+    DAWN_TRY_ASSIGN(result, device->CreatePipelineLayout(&desc, pipelineCompatibilityToken));
     DAWN_ASSERT(!result->IsError());
 
     // Check in debug that the pipeline layout is compatible with the current pipeline.
@@ -430,7 +409,7 @@ BindGroupLayoutInternalBase* PipelineLayoutBase::GetBindGroupLayout(BindGroupInd
     return GetFrontendBindGroupLayout(group)->GetInternalBindGroupLayout();
 }
 
-const BindGroupLayoutMask& PipelineLayoutBase::GetBindGroupLayoutsMask() const {
+const BindGroupMask& PipelineLayoutBase::GetBindGroupLayoutsMask() const {
     DAWN_ASSERT(!IsError());
     return mMask;
 }
@@ -452,7 +431,7 @@ bool PipelineLayoutBase::HasAnyStorageAttachments() const {
     return false;
 }
 
-BindGroupLayoutMask PipelineLayoutBase::InheritedGroupsMask(const PipelineLayoutBase* other) const {
+BindGroupMask PipelineLayoutBase::InheritedGroupsMask(const PipelineLayoutBase* other) const {
     DAWN_ASSERT(!IsError());
     return {(1 << static_cast<uint32_t>(GroupsInheritUpTo(other))) - 1u};
 }

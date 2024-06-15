@@ -28,18 +28,21 @@
 #include "dawn/native/metal/PipelineLayoutMTL.h"
 
 #include "dawn/common/BitSetIterator.h"
+#include "dawn/common/MatchVariant.h"
 #include "dawn/native/BindGroupLayoutInternal.h"
 #include "dawn/native/metal/DeviceMTL.h"
 
 namespace dawn::native::metal {
 
 // static
-Ref<PipelineLayout> PipelineLayout::Create(Device* device,
-                                           const PipelineLayoutDescriptor* descriptor) {
+Ref<PipelineLayout> PipelineLayout::Create(
+    Device* device,
+    const UnpackedPtr<PipelineLayoutDescriptor>& descriptor) {
     return AcquireRef(new PipelineLayout(device, descriptor));
 }
 
-PipelineLayout::PipelineLayout(Device* device, const PipelineLayoutDescriptor* descriptor)
+PipelineLayout::PipelineLayout(Device* device,
+                               const UnpackedPtr<PipelineLayoutDescriptor>& descriptor)
     : PipelineLayoutBase(device, descriptor) {
     // Each stage has its own numbering namespace in CompilerMSL.
     for (auto stage : IterateStages(kAllStages)) {
@@ -58,24 +61,30 @@ PipelineLayout::PipelineLayout(Device* device, const PipelineLayoutDescriptor* d
                     continue;
                 }
 
-                switch (bindingInfo.bindingType) {
-                    case BindingInfoType::Buffer:
+                MatchVariant(
+                    bindingInfo.bindingLayout,
+                    [&](const BufferBindingInfo&) {
                         mIndexInfo[stage][group][bindingIndex] = bufferIndex;
                         bufferIndex++;
-                        break;
-
-                    case BindingInfoType::Sampler:
+                    },
+                    [&](const SamplerBindingInfo&) {
                         mIndexInfo[stage][group][bindingIndex] = samplerIndex;
                         samplerIndex++;
-                        break;
-
-                    case BindingInfoType::Texture:
-                    case BindingInfoType::StorageTexture:
-                    case BindingInfoType::ExternalTexture:
+                    },
+                    [&](const TextureBindingInfo&) {
                         mIndexInfo[stage][group][bindingIndex] = textureIndex;
                         textureIndex++;
-                        break;
-                }
+                    },
+                    [&](const StorageTextureBindingInfo&) {
+                        mIndexInfo[stage][group][bindingIndex] = textureIndex;
+                        textureIndex++;
+                    },
+                    [&](const StaticSamplerBindingInfo&) {
+                        // Static samplers are handled in the frontend.
+                        // TODO(crbug.com/dawn/2482): Implement static samplers in the
+                        // Metal backend.
+                        DAWN_UNREACHABLE();
+                    });
             }
         }
 

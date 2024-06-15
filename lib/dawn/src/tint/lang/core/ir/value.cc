@@ -44,7 +44,7 @@ void Value::Destroy() {
     flags_.Add(Flag::kDead);
 }
 
-void Value::ForEachUse(std::function<void(Usage use)> func) {
+void Value::ForEachUse(std::function<void(Usage use)> func) const {
     auto uses = uses_;
     for (auto& use : uses) {
         func(use);
@@ -55,14 +55,14 @@ void Value::ReplaceAllUsesWith(std::function<Value*(Usage use)> replacer) {
     while (!uses_.IsEmpty()) {
         auto& use = *uses_.begin();
         auto* replacement = replacer(use);
-        use.instruction->SetOperand(use.operand_index, replacement);
+        use->instruction->SetOperand(use->operand_index, replacement);
     }
 }
 
 void Value::ReplaceAllUsesWith(Value* replacement) {
     while (!uses_.IsEmpty()) {
         auto& use = *uses_.begin();
-        use.instruction->SetOperand(use.operand_index, replacement);
+        use->instruction->SetOperand(use->operand_index, replacement);
     }
 }
 

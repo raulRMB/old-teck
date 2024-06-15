@@ -31,15 +31,17 @@
 #include "dawn/common/Platform.h"
 #include "dawn/native/Adapter.h"
 #include "dawn/native/BackendConnection.h"
-#include "dawn/native/ChainUtils_autogen.h"
+#include "dawn/native/ChainUtils.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/ErrorData.h"
 #include "dawn/native/EventManager.h"
+#include "dawn/native/metal/BackendMTL.h"
 #include "dawn/native/metal/BindGroupLayoutMTL.h"
 #include "dawn/native/metal/BindGroupMTL.h"
 #include "dawn/native/metal/BufferMTL.h"
 #include "dawn/native/metal/CommandBufferMTL.h"
 #include "dawn/native/metal/ComputePipelineMTL.h"
+#include "dawn/native/metal/PhysicalDeviceMTL.h"
 #include "dawn/native/metal/PipelineLayoutMTL.h"
 #include "dawn/native/metal/QuerySetMTL.h"
 #include "dawn/native/metal/QueueMTL.h"
@@ -123,11 +125,12 @@ void API_AVAILABLE(macos(10.15), ios(14)) UpdateTimestampPeriod(id<MTLDevice> de
 // static
 ResultOrError<Ref<Device>> Device::Create(AdapterBase* adapter,
                                           NSPRef<id<MTLDevice>> mtlDevice,
-                                          const DeviceDescriptor* descriptor,
-                                          const TogglesState& deviceToggles) {
+                                          const UnpackedPtr<DeviceDescriptor>& descriptor,
+                                          const TogglesState& deviceToggles,
+                                          Ref<DeviceBase::DeviceLostEvent>&& lostEvent) {
     @autoreleasepool {
-        Ref<Device> device =
-            AcquireRef(new Device(adapter, std::move(mtlDevice), descriptor, deviceToggles));
+        Ref<Device> device = AcquireRef(new Device(adapter, std::move(mtlDevice), descriptor,
+                                                   deviceToggles, std::move(lostEvent)));
         DAWN_TRY(device->Initialize(descriptor));
         return device;
     }
@@ -135,9 +138,11 @@ ResultOrError<Ref<Device>> Device::Create(AdapterBase* adapter,
 
 Device::Device(AdapterBase* adapter,
                NSPRef<id<MTLDevice>> mtlDevice,
-               const DeviceDescriptor* descriptor,
-               const TogglesState& deviceToggles)
-    : DeviceBase(adapter, descriptor, deviceToggles), mMtlDevice(std::move(mtlDevice)) {
+               const UnpackedPtr<DeviceDescriptor>& descriptor,
+               const TogglesState& deviceToggles,
+               Ref<DeviceBase::DeviceLostEvent>&& lostEvent)
+    : DeviceBase(adapter, descriptor, deviceToggles, std::move(lostEvent)),
+      mMtlDevice(std::move(mtlDevice)) {
     // On macOS < 11.0, we only can check whether counter sampling is supported, and the counter
     // only can be sampled between command boundary using sampleCountersInBuffer API if it's
     // supported.
@@ -157,7 +162,7 @@ Device::~Device() {
     Destroy();
 }
 
-MaybeError Device::Initialize(const DeviceDescriptor* descriptor) {
+MaybeError Device::Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor) {
     Ref<Queue> queue;
     DAWN_TRY_ASSIGN(queue, Queue::Create(this, &descriptor->defaultQueue));
 
@@ -191,7 +196,8 @@ ResultOrError<Ref<BindGroupLayoutInternalBase>> Device::CreateBindGroupLayoutImp
     const BindGroupLayoutDescriptor* descriptor) {
     return BindGroupLayout::Create(this, descriptor);
 }
-ResultOrError<Ref<BufferBase>> Device::CreateBufferImpl(const BufferDescriptor* descriptor) {
+ResultOrError<Ref<BufferBase>> Device::CreateBufferImpl(
+    const UnpackedPtr<BufferDescriptor>& descriptor) {
     return Buffer::Create(this, descriptor);
 }
 ResultOrError<Ref<CommandBufferBase>> Device::CreateCommandBuffer(
@@ -200,52 +206,62 @@ ResultOrError<Ref<CommandBufferBase>> Device::CreateCommandBuffer(
     return CommandBuffer::Create(encoder, descriptor);
 }
 Ref<ComputePipelineBase> Device::CreateUninitializedComputePipelineImpl(
-    const ComputePipelineDescriptor* descriptor) {
+    const UnpackedPtr<ComputePipelineDescriptor>& descriptor) {
     return ComputePipeline::CreateUninitialized(this, descriptor);
 }
 ResultOrError<Ref<PipelineLayoutBase>> Device::CreatePipelineLayoutImpl(
-    const PipelineLayoutDescriptor* descriptor) {
+    const UnpackedPtr<PipelineLayoutDescriptor>& descriptor) {
     return PipelineLayout::Create(this, descriptor);
 }
 ResultOrError<Ref<QuerySetBase>> Device::CreateQuerySetImpl(const QuerySetDescriptor* descriptor) {
     return QuerySet::Create(this, descriptor);
 }
 Ref<RenderPipelineBase> Device::CreateUninitializedRenderPipelineImpl(
-    const RenderPipelineDescriptor* descriptor) {
+    const UnpackedPtr<RenderPipelineDescriptor>& descriptor) {
     return RenderPipeline::CreateUninitialized(this, descriptor);
 }
 ResultOrError<Ref<SamplerBase>> Device::CreateSamplerImpl(const SamplerDescriptor* descriptor) {
     return Sampler::Create(this, descriptor);
 }
 ResultOrError<Ref<ShaderModuleBase>> Device::CreateShaderModuleImpl(
-    const ShaderModuleDescriptor* descriptor,
+    const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
     ShaderModuleParseResult* parseResult,
     OwnedCompilationMessages* compilationMessages) {
     return ShaderModule::Create(this, descriptor, parseResult, compilationMessages);
 }
-ResultOrError<Ref<SwapChainBase>> Device::CreateSwapChainImpl(
-    Surface* surface,
-    SwapChainBase* previousSwapChain,
-    const SwapChainDescriptor* descriptor) {
-    return SwapChain::Create(this, surface, previousSwapChain, descriptor);
+ResultOrError<Ref<SwapChainBase>> Device::CreateSwapChainImpl(Surface* surface,
+                                                              SwapChainBase* previousSwapChain,
+                                                              const SurfaceConfiguration* config) {
+    return SwapChain::Create(this, surface, previousSwapChain, config);
 }
-ResultOrError<Ref<TextureBase>> Device::CreateTextureImpl(const TextureDescriptor* descriptor) {
+ResultOrError<Ref<TextureBase>> Device::CreateTextureImpl(
+    const UnpackedPtr<TextureDescriptor>& descriptor) {
     return Texture::Create(this, descriptor);
 }
 ResultOrError<Ref<TextureViewBase>> Device::CreateTextureViewImpl(
     TextureBase* texture,
-    const TextureViewDescriptor* descriptor) {
+    const UnpackedPtr<TextureViewDescriptor>& descriptor) {
     return TextureView::Create(texture, descriptor);
 }
-void Device::InitializeComputePipelineAsyncImpl(Ref<ComputePipelineBase> computePipeline,
-                                                WGPUCreateComputePipelineAsyncCallback callback,
-                                                void* userdata) {
-    ComputePipeline::InitializeAsync(std::move(computePipeline), callback, userdata);
+void Device::InitializeComputePipelineAsyncImpl(Ref<CreateComputePipelineAsyncEvent> event) {
+    PhysicalDevice* physicalDevice = ToBackend(GetPhysicalDevice());
+    if (physicalDevice->IsMetalValidationEnabled() &&
+        gpu_info::IsAMD(physicalDevice->GetVendorId())) {
+        event->InitializeSync();
+        return;
+    }
+
+    event->InitializeAsync();
 }
-void Device::InitializeRenderPipelineAsyncImpl(Ref<RenderPipelineBase> renderPipeline,
-                                               WGPUCreateRenderPipelineAsyncCallback callback,
-                                               void* userdata) {
-    RenderPipeline::InitializeAsync(std::move(renderPipeline), callback, userdata);
+void Device::InitializeRenderPipelineAsyncImpl(Ref<CreateRenderPipelineAsyncEvent> event) {
+    PhysicalDevice* physicalDevice = ToBackend(GetPhysicalDevice());
+    if (physicalDevice->IsMetalValidationEnabled() &&
+        gpu_info::IsAMD(physicalDevice->GetVendorId())) {
+        event->InitializeSync();
+        return;
+    }
+
+    event->InitializeAsync();
 }
 
 ResultOrError<wgpu::TextureUsage> Device::GetSupportedSurfaceUsageImpl(
@@ -258,14 +274,15 @@ ResultOrError<wgpu::TextureUsage> Device::GetSupportedSurfaceUsageImpl(
 
 ResultOrError<Ref<SharedTextureMemoryBase>> Device::ImportSharedTextureMemoryImpl(
     const SharedTextureMemoryDescriptor* baseDescriptor) {
-    DAWN_TRY(ValidateSingleSType(baseDescriptor->nextInChain,
-                                 wgpu::SType::SharedTextureMemoryIOSurfaceDescriptor));
+    UnpackedPtr<SharedTextureMemoryDescriptor> unpacked;
+    DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(baseDescriptor));
 
-    const SharedTextureMemoryIOSurfaceDescriptor* descriptor = nullptr;
-    FindInChain(baseDescriptor->nextInChain, &descriptor);
-
-    DAWN_INVALID_IF(descriptor == nullptr,
-                    "SharedTextureMemoryIOSurfaceDescriptor must be chained.");
+    wgpu::SType type;
+    DAWN_TRY_ASSIGN(type,
+                    (unpacked.ValidateBranches<Branch<SharedTextureMemoryIOSurfaceDescriptor>>()));
+    DAWN_ASSERT(type == wgpu::SType::SharedTextureMemoryIOSurfaceDescriptor);
+    const auto* descriptor = unpacked.Get<SharedTextureMemoryIOSurfaceDescriptor>();
+    DAWN_ASSERT(descriptor != nullptr);
 
     DAWN_INVALID_IF(!HasFeature(Feature::SharedTextureMemoryIOSurface), "%s is not enabled.",
                     wgpu::FeatureName::SharedTextureMemoryIOSurface);
@@ -275,13 +292,15 @@ ResultOrError<Ref<SharedTextureMemoryBase>> Device::ImportSharedTextureMemoryImp
 
 ResultOrError<Ref<SharedFenceBase>> Device::ImportSharedFenceImpl(
     const SharedFenceDescriptor* baseDescriptor) {
-    DAWN_TRY(ValidateSingleSType(baseDescriptor->nextInChain,
-                                 wgpu::SType::SharedFenceMTLSharedEventDescriptor));
+    UnpackedPtr<SharedFenceDescriptor> unpacked;
+    DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(baseDescriptor));
 
-    const SharedFenceMTLSharedEventDescriptor* descriptor = nullptr;
-    FindInChain(baseDescriptor->nextInChain, &descriptor);
-
-    DAWN_INVALID_IF(descriptor == nullptr, "SharedFenceMTLSharedEventDescriptor must be chained.");
+    wgpu::SType type;
+    DAWN_TRY_ASSIGN(type,
+                    (unpacked.ValidateBranches<Branch<SharedFenceMTLSharedEventDescriptor>>()));
+    DAWN_ASSERT(type == wgpu::SType::SharedFenceMTLSharedEventDescriptor);
+    const auto* descriptor = unpacked.Get<SharedFenceMTLSharedEventDescriptor>();
+    DAWN_ASSERT(descriptor != nullptr);
 
     DAWN_INVALID_IF(!HasFeature(Feature::SharedFenceMTLSharedEvent), "%s is not enabled.",
                     wgpu::FeatureName::SharedFenceMTLSharedEvent);
@@ -310,10 +329,6 @@ id<MTLDevice> Device::GetMTLDevice() const {
     return mMtlDevice.Get();
 }
 
-CommandRecordingContext* Device::GetPendingCommandContext(Device::SubmitMode submitMode) {
-    return ToBackend(GetQueue())->GetPendingCommandContext(submitMode);
-}
-
 MaybeError Device::CopyFromStagingToBufferImpl(BufferBase* source,
                                                uint64_t sourceOffset,
                                                BufferBase* destination,
@@ -325,12 +340,13 @@ MaybeError Device::CopyFromStagingToBufferImpl(BufferBase* source,
 
     ToBackend(destination)
         ->EnsureDataInitializedAsDestination(
-            GetPendingCommandContext(DeviceBase::SubmitMode::Passive), destinationOffset, size);
+            ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive),
+            destinationOffset, size);
 
     id<MTLBuffer> uploadBuffer = ToBackend(source)->GetMTLBuffer();
     Buffer* buffer = ToBackend(destination);
     buffer->TrackUsage();
-    [GetPendingCommandContext(DeviceBase::SubmitMode::Passive)->EnsureBlit()
+    [ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive)->EnsureBlit()
            copyFromBuffer:uploadBuffer
              sourceOffset:sourceOffset
                  toBuffer:buffer->GetMTLBuffer()
@@ -347,48 +363,17 @@ MaybeError Device::CopyFromStagingToTextureImpl(const BufferBase* source,
                                                 const TextureCopy& dst,
                                                 const Extent3D& copySizePixels) {
     Texture* texture = ToBackend(dst.texture.Get());
-    texture->SynchronizeTextureBeforeUse(GetPendingCommandContext());
+    texture->SynchronizeTextureBeforeUse(ToBackend(GetQueue())->GetPendingCommandContext());
     DAWN_TRY(EnsureDestinationTextureInitialized(
-        GetPendingCommandContext(DeviceBase::SubmitMode::Passive), texture, dst, copySizePixels));
+        ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive), texture,
+        dst, copySizePixels));
 
-    RecordCopyBufferToTexture(GetPendingCommandContext(DeviceBase::SubmitMode::Passive),
-                              ToBackend(source)->GetMTLBuffer(), source->GetSize(),
-                              dataLayout.offset, dataLayout.bytesPerRow, dataLayout.rowsPerImage,
-                              texture, dst.mipLevel, dst.origin, dst.aspect, copySizePixels);
+    RecordCopyBufferToTexture(
+        ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive),
+        ToBackend(source)->GetMTLBuffer(), source->GetSize(), dataLayout.offset,
+        dataLayout.bytesPerRow, dataLayout.rowsPerImage, texture, dst.mipLevel, dst.origin,
+        dst.aspect, copySizePixels);
     return {};
-}
-
-Ref<Texture> Device::CreateTextureWrappingIOSurface(
-    const ExternalImageDescriptor* descriptor,
-    IOSurfaceRef ioSurface,
-    std::vector<MTLSharedEventAndSignalValue> waitEvents) {
-    const TextureDescriptor* textureDescriptor = FromAPI(descriptor->cTextureDescriptor);
-    if (ConsumedError(ValidateIsAlive())) {
-        return nullptr;
-    }
-    if (ConsumedError(ValidateTextureDescriptor(this, textureDescriptor,
-                                                AllowMultiPlanarTextureFormat::Yes))) {
-        return nullptr;
-    }
-    if (ConsumedError(ValidateIOSurfaceCanBeWrapped(this, textureDescriptor, ioSurface))) {
-        return nullptr;
-    }
-    // TODO(dawn:1337): Allow creating uninitialized texture for rendering.
-    if (GetValidInternalFormat(textureDescriptor->format).IsMultiPlanar() &&
-        !descriptor->isInitialized) {
-        bool consumed = ConsumedError(DAWN_VALIDATION_ERROR(
-            "External textures with multiplanar formats must be initialized."));
-        DAWN_UNUSED(consumed);
-        return nullptr;
-    }
-
-    Ref<Texture> result;
-    if (ConsumedError(
-            Texture::CreateFromIOSurface(this, descriptor, ioSurface, std::move(waitEvents)),
-            &result)) {
-        return nullptr;
-    }
-    return result;
 }
 
 void Device::DestroyImpl() {

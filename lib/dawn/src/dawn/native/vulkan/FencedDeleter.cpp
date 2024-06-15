@@ -27,6 +27,7 @@
 
 #include "dawn/native/vulkan/FencedDeleter.h"
 
+#include "dawn/native/Queue.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 
 namespace dawn::native::vulkan {
@@ -44,6 +45,7 @@ FencedDeleter::~FencedDeleter() {
     DAWN_ASSERT(mPipelineLayoutsToDelete.Empty());
     DAWN_ASSERT(mQueryPoolsToDelete.Empty());
     DAWN_ASSERT(mRenderPassesToDelete.Empty());
+    DAWN_ASSERT(mSamplerYcbcrConversionsToDelete.Empty());
     DAWN_ASSERT(mSamplersToDelete.Empty());
     DAWN_ASSERT(mSemaphoresToDelete.Empty());
     DAWN_ASSERT(mShaderModulesToDelete.Empty());
@@ -52,63 +54,68 @@ FencedDeleter::~FencedDeleter() {
 }
 
 void FencedDeleter::DeleteWhenUnused(VkBuffer buffer) {
-    mBuffersToDelete.Enqueue(buffer, mDevice->GetPendingCommandSerial());
+    mBuffersToDelete.Enqueue(buffer, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkDescriptorPool pool) {
-    mDescriptorPoolsToDelete.Enqueue(pool, mDevice->GetPendingCommandSerial());
+    mDescriptorPoolsToDelete.Enqueue(pool, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkDeviceMemory memory) {
-    mMemoriesToDelete.Enqueue(memory, mDevice->GetPendingCommandSerial());
+    mMemoriesToDelete.Enqueue(memory, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkFramebuffer framebuffer) {
-    mFramebuffersToDelete.Enqueue(framebuffer, mDevice->GetPendingCommandSerial());
+    mFramebuffersToDelete.Enqueue(framebuffer, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkImage image) {
-    mImagesToDelete.Enqueue(image, mDevice->GetPendingCommandSerial());
+    mImagesToDelete.Enqueue(image, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkImageView view) {
-    mImageViewsToDelete.Enqueue(view, mDevice->GetPendingCommandSerial());
+    mImageViewsToDelete.Enqueue(view, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkPipeline pipeline) {
-    mPipelinesToDelete.Enqueue(pipeline, mDevice->GetPendingCommandSerial());
+    mPipelinesToDelete.Enqueue(pipeline, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkPipelineLayout layout) {
-    mPipelineLayoutsToDelete.Enqueue(layout, mDevice->GetPendingCommandSerial());
+    mPipelineLayoutsToDelete.Enqueue(layout, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkQueryPool querypool) {
-    mQueryPoolsToDelete.Enqueue(querypool, mDevice->GetPendingCommandSerial());
+    mQueryPoolsToDelete.Enqueue(querypool, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkRenderPass renderPass) {
-    mRenderPassesToDelete.Enqueue(renderPass, mDevice->GetPendingCommandSerial());
+    mRenderPassesToDelete.Enqueue(renderPass, mDevice->GetQueue()->GetPendingCommandSerial());
+}
+
+void FencedDeleter::DeleteWhenUnused(VkSamplerYcbcrConversion samplerYcbcrConversion) {
+    mSamplerYcbcrConversionsToDelete.Enqueue(samplerYcbcrConversion,
+                                             mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkSampler sampler) {
-    mSamplersToDelete.Enqueue(sampler, mDevice->GetPendingCommandSerial());
+    mSamplersToDelete.Enqueue(sampler, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkSemaphore semaphore) {
-    mSemaphoresToDelete.Enqueue(semaphore, mDevice->GetPendingCommandSerial());
+    mSemaphoresToDelete.Enqueue(semaphore, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkShaderModule module) {
-    mShaderModulesToDelete.Enqueue(module, mDevice->GetPendingCommandSerial());
+    mShaderModulesToDelete.Enqueue(module, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkSurfaceKHR surface) {
-    mSurfacesToDelete.Enqueue(surface, mDevice->GetPendingCommandSerial());
+    mSurfacesToDelete.Enqueue(surface, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::DeleteWhenUnused(VkSwapchainKHR swapChain) {
-    mSwapChainsToDelete.Enqueue(swapChain, mDevice->GetPendingCommandSerial());
+    mSwapChainsToDelete.Enqueue(swapChain, mDevice->GetQueue()->GetPendingCommandSerial());
 }
 
 void FencedDeleter::Tick(ExecutionSerial completedSerial) {
@@ -185,6 +192,12 @@ void FencedDeleter::Tick(ExecutionSerial completedSerial) {
         mDevice->fn.DestroyQueryPool(vkDevice, pool, nullptr);
     }
     mQueryPoolsToDelete.ClearUpTo(completedSerial);
+
+    for (VkSamplerYcbcrConversion samplerYcbcrConversion :
+         mSamplerYcbcrConversionsToDelete.IterateUpTo(completedSerial)) {
+        mDevice->fn.DestroySamplerYcbcrConversion(vkDevice, samplerYcbcrConversion, nullptr);
+    }
+    mSamplerYcbcrConversionsToDelete.ClearUpTo(completedSerial);
 
     for (VkSampler sampler : mSamplersToDelete.IterateUpTo(completedSerial)) {
         mDevice->fn.DestroySampler(vkDevice, sampler, nullptr);

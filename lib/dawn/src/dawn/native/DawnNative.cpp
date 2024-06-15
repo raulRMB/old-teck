@@ -42,6 +42,11 @@
 
 namespace dawn::native {
 
+const char MemoryDump::kNameSize[] = "size";
+const char MemoryDump::kNameObjectCount[] = "object_count";
+const char MemoryDump::kUnitsBytes[] = "bytes";
+const char MemoryDump::kUnitsObjects[] = "objects";
+
 const DawnProcTable& GetProcsAutogen();
 
 const DawnProcTable& GetProcs() {
@@ -58,7 +63,7 @@ Adapter::Adapter() = default;
 
 Adapter::Adapter(AdapterBase* impl) : mImpl(impl) {
     if (mImpl != nullptr) {
-        mImpl->Reference();
+        mImpl->AddRef();
     }
 }
 
@@ -78,7 +83,7 @@ Adapter& Adapter::operator=(const Adapter& other) {
         }
         mImpl = other.mImpl;
         if (mImpl) {
-            mImpl->Reference();
+            mImpl->AddRef();
         }
     }
     return *this;
@@ -140,7 +145,8 @@ void Adapter::RequestDevice(const WGPUDeviceDescriptor* descriptor,
 }
 
 void Adapter::ResetInternalDeviceForTesting() {
-    mImpl->GetPhysicalDevice()->ResetInternalDeviceForTesting();
+    [[maybe_unused]] bool hadError = mImpl->GetInstance()->ConsumedError(
+        mImpl->GetPhysicalDevice()->ResetInternalDeviceForTesting());
 }
 
 // DawnInstanceDescriptor
@@ -151,9 +157,10 @@ DawnInstanceDescriptor::DawnInstanceDescriptor() {
 
 bool DawnInstanceDescriptor::operator==(const DawnInstanceDescriptor& rhs) const {
     return (nextInChain == rhs.nextInChain) &&
-           std::tie(additionalRuntimeSearchPathsCount, additionalRuntimeSearchPaths, platform) ==
+           std::tie(additionalRuntimeSearchPathsCount, additionalRuntimeSearchPaths, platform,
+                    backendValidationLevel, beginCaptureOnStartup) ==
                std::tie(rhs.additionalRuntimeSearchPathsCount, rhs.additionalRuntimeSearchPaths,
-                        rhs.platform);
+                        rhs.platform, rhs.backendValidationLevel, rhs.beginCaptureOnStartup);
 }
 
 // Instance
@@ -187,10 +194,6 @@ const ToggleInfo* Instance::GetToggleInfo(const char* toggleName) {
     return mImpl->GetToggleInfo(toggleName);
 }
 
-const FeatureInfo* Instance::GetFeatureInfo(WGPUFeatureName feature) {
-    return mImpl->GetFeatureInfo(static_cast<wgpu::FeatureName>(feature));
-}
-
 void Instance::EnableBackendValidation(bool enableBackendValidation) {
     if (enableBackendValidation) {
         mImpl->SetBackendValidationLevel(BackendValidationLevel::Full);
@@ -205,28 +208,24 @@ void Instance::EnableBeginCaptureOnStartup(bool beginCaptureOnStartup) {
     mImpl->EnableBeginCaptureOnStartup(beginCaptureOnStartup);
 }
 
-void Instance::EnableAdapterBlocklist(bool enable) {
-    mImpl->EnableAdapterBlocklist(enable);
-}
-
 uint64_t Instance::GetDeviceCountForTesting() const {
     return mImpl->GetDeviceCountForTesting();
+}
+
+uint64_t Instance::GetDeprecationWarningCountForTesting() const {
+    return mImpl->GetDeprecationWarningCountForTesting();
 }
 
 WGPUInstance Instance::Get() const {
     return ToAPI(mImpl);
 }
 
+void Instance::DisconnectDawnPlatform() {
+    mImpl->DisconnectDawnPlatform();
+}
+
 size_t GetLazyClearCountForTesting(WGPUDevice device) {
     return FromAPI(device)->GetLazyClearCountForTesting();
-}
-
-size_t GetDeprecationWarningCountForTesting(WGPUDevice device) {
-    return FromAPI(device)->GetDeprecationWarningCountForTesting();
-}
-
-size_t GetPhysicalDeviceCountForTesting(WGPUInstance instance) {
-    return FromAPI(instance)->GetPhysicalDeviceCountForTesting();
 }
 
 bool IsTextureSubresourceInitialized(WGPUTexture texture,
@@ -256,8 +255,8 @@ DAWN_NATIVE_EXPORT bool DeviceTick(WGPUDevice device) {
     return FromAPI(device)->APITick();
 }
 
-DAWN_NATIVE_EXPORT void InstanceProcessEvents(WGPUInstance instance) {
-    FromAPI(instance)->APIProcessEvents();
+DAWN_NATIVE_EXPORT bool InstanceProcessEvents(WGPUInstance instance) {
+    return FromAPI(instance)->ProcessEvents();
 }
 
 // ExternalImageDescriptor
@@ -293,8 +292,16 @@ std::vector<const ToggleInfo*> AllToggleInfos() {
     return TogglesInfo::AllToggleInfos();
 }
 
-FeatureInfo GetFeatureInfo(wgpu::FeatureName featureName) {
-    return kFeatureNameAndInfoList[FromAPI(featureName)];
+const FeatureInfo* GetFeatureInfo(wgpu::FeatureName feature) {
+    Feature f = FromAPI(feature);
+    if (f == Feature::InvalidEnum) {
+        return nullptr;
+    }
+    return &kFeatureNameAndInfoList[FromAPI(feature)];
+}
+
+void DumpMemoryStatistics(WGPUDevice device, MemoryDump* dump) {
+    FromAPI(device)->DumpMemoryStatistics(dump);
 }
 
 }  // namespace dawn::native

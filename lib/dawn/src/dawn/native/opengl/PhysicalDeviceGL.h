@@ -36,8 +36,7 @@ namespace dawn::native::opengl {
 
 class PhysicalDevice : public PhysicalDeviceBase {
   public:
-    static ResultOrError<Ref<PhysicalDevice>> Create(InstanceBase* instance,
-                                                     wgpu::BackendType backendType,
+    static ResultOrError<Ref<PhysicalDevice>> Create(wgpu::BackendType backendType,
                                                      void* (*getProc)(const char*),
                                                      EGLDisplay display);
 
@@ -46,9 +45,12 @@ class PhysicalDevice : public PhysicalDeviceBase {
     // PhysicalDeviceBase Implementation
     bool SupportsExternalImages() const override;
     bool SupportsFeatureLevel(FeatureLevel featureLevel) const override;
+    ResultOrError<PhysicalDeviceSurfaceCapabilities> GetSurfaceCapabilities(
+        InstanceBase* instance,
+        const Surface* surface) const override;
 
   private:
-    PhysicalDevice(InstanceBase* instance, wgpu::BackendType backendType, EGLDisplay display);
+    PhysicalDevice(wgpu::BackendType backendType, EGLDisplay display);
     MaybeError InitializeGLFunctions(void* (*getProc)(const char*));
 
     MaybeError InitializeImpl() override;
@@ -59,13 +61,17 @@ class PhysicalDevice : public PhysicalDeviceBase {
         wgpu::FeatureName feature,
         const TogglesState& toggles) const override;
 
-    void SetupBackendAdapterToggles(TogglesState* adapterToggles) const override;
-    void SetupBackendDeviceToggles(TogglesState* deviceToggles) const override;
-    ResultOrError<Ref<DeviceBase>> CreateDeviceImpl(AdapterBase* adapter,
-                                                    const DeviceDescriptor* descriptor,
-                                                    const TogglesState& deviceToggles) override;
+    void SetupBackendAdapterToggles(dawn::platform::Platform* platform,
+                                    TogglesState* adapterToggles) const override;
+    void SetupBackendDeviceToggles(dawn::platform::Platform* platform,
+                                   TogglesState* deviceToggles) const override;
+    ResultOrError<Ref<DeviceBase>> CreateDeviceImpl(
+        AdapterBase* adapter,
+        const UnpackedPtr<DeviceDescriptor>& descriptor,
+        const TogglesState& deviceToggles,
+        Ref<DeviceBase::DeviceLostEvent>&& lostEvent) override;
 
-    void PopulateMemoryHeapInfo(AdapterPropertiesMemoryHeaps* memoryHeapProperties) const override;
+    void PopulateBackendProperties(UnpackedPtr<AdapterProperties>& properties) const override;
 
     OpenGLFunctions mFunctions;
     EGLDisplay mDisplay;

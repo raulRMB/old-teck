@@ -36,11 +36,12 @@ TINT_INSTANTIATE_TYPEINFO(tint::core::ir::Load);
 
 namespace tint::core::ir {
 
+Load::Load() {
+    flags_.Add(Flag::kSequenced);
+}
+
 Load::Load(InstructionResult* result, Value* from) {
     flags_.Add(Flag::kSequenced);
-
-    TINT_ASSERT(from->Type()->Is<core::type::Pointer>());
-    TINT_ASSERT(from && from->Type()->UnwrapPtr() == result->Type());
 
     AddOperand(Load::kFromOperandOffset, from);
     AddResult(result);
@@ -51,7 +52,7 @@ Load::~Load() = default;
 Load* Load::Clone(CloneContext& ctx) {
     auto* new_result = ctx.Clone(Result(0));
     auto* from = ctx.Remap(From());
-    return ctx.ir.instructions.Create<Load>(new_result, from);
+    return ctx.ir.allocators.instructions.Create<Load>(new_result, from);
 }
 
 }  // namespace tint::core::ir

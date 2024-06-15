@@ -1,53 +1,38 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: %b1 = block {  # root
-  %u:ptr<uniform, array<mat4x3<f16>, 4>, read> = var @binding_point(0, 0)
-}
+struct tint_module_vars_struct {
+  const constant tint_array<half4x3, 4>* u;
+  device half* s;
+};
 
-%a = func(%a_1:array<mat4x3<f16>, 4>):void -> %b2 {  # %a_1: 'a'
-  %b2 = block {
-    ret
-  }
+half a(tint_array<half4x3, 4> a) {
+  return a[0][0][0u];
 }
-%b = func(%m:mat4x3<f16>):void -> %b3 {
-  %b3 = block {
-    ret
-  }
+half b(half4x3 m) {
+  return m[0][0u];
 }
-%c = func(%v:vec3<f16>):void -> %b4 {
-  %b4 = block {
-    ret
-  }
+half c(half3 v) {
+  return v[0u];
 }
-%d = func(%f:f16):void -> %b5 {
-  %b5 = block {
-    ret
-  }
+half d(half f) {
+  return f;
 }
-%f_1 = @compute @workgroup_size(1, 1, 1) func():void -> %b6 {  # %f_1: 'f'
-  %b6 = block {
-    %11:array<mat4x3<f16>, 4> = load %u
-    %12:void = call %a, %11
-    %13:ptr<uniform, mat4x3<f16>, read> = access %u, 1i
-    %14:mat4x3<f16> = load %13
-    %15:void = call %b, %14
-    %16:ptr<uniform, vec3<f16>, read> = access %u, 1i, 0i
-    %17:vec3<f16> = load %16
-    %18:vec3<f16> = swizzle %17, zxy
-    %19:void = call %c, %18
-    %20:ptr<uniform, vec3<f16>, read> = access %u, 1i, 0i
-    %21:vec3<f16> = load %20
-    %22:vec3<f16> = swizzle %21, zxy
-    %23:f16 = access %22, 0u
-    %24:void = call %d, %23
-    ret
-  }
+kernel void f(const constant tint_array<half4x3, 4>* u [[buffer(0)]], device half* s [[buffer(1)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.u=u, .s=s};
+  half const v_1 = a((*tint_module_vars.u));
+  half const v_2 = (v_1 + b((*tint_module_vars.u)[1]));
+  half const v_3 = (v_2 + c((*tint_module_vars.u)[1][0].zxy));
+  (*tint_module_vars.s) = (v_3 + d((*tint_module_vars.u)[1][0].zxy[0u]));
 }
-
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************

@@ -31,6 +31,7 @@
 #include "dawn/common/Ref.h"
 #include "dawn/common/RefCounted.h"
 #include "gtest/gtest.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn {
 namespace {
@@ -52,12 +53,30 @@ class RCTest : public RefCounted {
     RCTest* GetThis() { return this; }
 
   private:
-    bool* mDeleted = nullptr;
+    raw_ptr<bool> mDeleted = nullptr;
 };
 
 struct RCTestDerived : public RCTest {
     using RCTest::RCTest;
 };
+
+TEST(RefCount, Increment) {
+    RefCount refCount0(/*initCount=*/0, /*payload=*/0);
+    // Previous count is 0
+    EXPECT_TRUE(refCount0.Increment());
+    // Previous count is 1
+    EXPECT_FALSE(refCount0.Increment());
+
+    EXPECT_FALSE(refCount0.Decrement());
+    EXPECT_TRUE(refCount0.Decrement());
+
+    RefCount refCount1(/*initCount=*/1, /*payload=*/0);
+    // Previous count is 1
+    EXPECT_FALSE(refCount1.Increment());
+
+    EXPECT_FALSE(refCount1.Decrement());
+    EXPECT_TRUE(refCount1.Decrement());
+}
 
 // Test that RCs start with one ref, and removing it destroys the object.
 TEST(RefCounted, StartsWithOneRef) {
@@ -73,7 +92,7 @@ TEST(RefCounted, AddingRefKeepsAlive) {
     bool deleted = false;
     auto* test = new RCTest(&deleted);
 
-    test->Reference();
+    test->AddRef();
     test->Release();
     EXPECT_FALSE(deleted);
 
@@ -81,14 +100,14 @@ TEST(RefCounted, AddingRefKeepsAlive) {
     EXPECT_TRUE(deleted);
 }
 
-// Test that Reference and Release atomically change the refcount.
-TEST(RefCounted, RaceOnReferenceRelease) {
+// Test that AddRef and Release atomically change the refcount.
+TEST(RefCounted, RaceOnAddRefRelease) {
     bool deleted = false;
     auto* test = new RCTest(&deleted);
 
     auto referenceManyTimes = [test] {
         for (uint32_t i = 0; i < 100000; ++i) {
-            test->Reference();
+            test->AddRef();
         }
     };
     std::thread t1(referenceManyTimes);
@@ -276,7 +295,7 @@ TEST(Ref, PayloadUnchangedByRefCounting) {
     RCTest* test = new RCTest(1ull);
     EXPECT_EQ(test->GetRefCountPayload(), 1u);
 
-    test->Reference();
+    test->AddRef();
     EXPECT_EQ(test->GetRefCountPayload(), 1u);
     test->Release();
     EXPECT_EQ(test->GetRefCountPayload(), 1u);

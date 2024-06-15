@@ -28,10 +28,11 @@
 #include "dawn/native/vulkan/RenderPipelineVk.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PipelineCacheVk.h"
@@ -54,6 +55,7 @@ VkVertexInputRate VulkanInputRate(wgpu::VertexStepMode stepMode) {
         case wgpu::VertexStepMode::Instance:
             return VK_VERTEX_INPUT_RATE_INSTANCE;
         case wgpu::VertexStepMode::VertexBufferNotUsed:
+        case wgpu::VertexStepMode::Undefined:
             break;
     }
     DAWN_UNREACHABLE();
@@ -140,6 +142,8 @@ VkPrimitiveTopology VulkanPrimitiveTopology(wgpu::PrimitiveTopology topology) {
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         case wgpu::PrimitiveTopology::TriangleStrip:
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -155,6 +159,8 @@ bool ShouldEnablePrimitiveRestart(wgpu::PrimitiveTopology topology) {
         case wgpu::PrimitiveTopology::LineStrip:
         case wgpu::PrimitiveTopology::TriangleStrip:
             return true;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -165,6 +171,8 @@ VkFrontFace VulkanFrontFace(wgpu::FrontFace face) {
             return VK_FRONT_FACE_COUNTER_CLOCKWISE;
         case wgpu::FrontFace::CW:
             return VK_FRONT_FACE_CLOCKWISE;
+        case wgpu::FrontFace::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -177,6 +185,8 @@ VkCullModeFlagBits VulkanCullMode(wgpu::CullMode mode) {
             return VK_CULL_MODE_FRONT_BIT;
         case wgpu::CullMode::Back:
             return VK_CULL_MODE_BACK_BIT;
+        case wgpu::CullMode::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -217,6 +227,8 @@ VkBlendFactor VulkanBlendFactor(wgpu::BlendFactor factor) {
             return VK_BLEND_FACTOR_SRC1_ALPHA;
         case wgpu::BlendFactor::OneMinusSrc1Alpha:
             return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        case wgpu::BlendFactor::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -233,6 +245,8 @@ VkBlendOp VulkanBlendOperation(wgpu::BlendOperation operation) {
             return VK_BLEND_OP_MIN;
         case wgpu::BlendOperation::Max:
             return VK_BLEND_OP_MAX;
+        case wgpu::BlendOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -300,51 +314,10 @@ VkStencilOp VulkanStencilOp(wgpu::StencilOperation op) {
             return VK_STENCIL_OP_INCREMENT_AND_WRAP;
         case wgpu::StencilOperation::DecrementWrap:
             return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        case wgpu::StencilOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
-}
-
-VkPipelineDepthStencilStateCreateInfo ComputeDepthStencilDesc(const DepthStencilState* descriptor) {
-    VkPipelineDepthStencilStateCreateInfo depthStencilState;
-    depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencilState.pNext = nullptr;
-    depthStencilState.flags = 0;
-
-    // Depth writes only occur if depth is enabled
-    depthStencilState.depthTestEnable =
-        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
-         !descriptor->depthWriteEnabled)
-            ? VK_FALSE
-            : VK_TRUE;
-    depthStencilState.depthWriteEnable = descriptor->depthWriteEnabled ? VK_TRUE : VK_FALSE;
-    depthStencilState.depthCompareOp = ToVulkanCompareOp(descriptor->depthCompare);
-    depthStencilState.depthBoundsTestEnable = false;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    depthStencilState.stencilTestEnable = StencilTestEnabled(descriptor) ? VK_TRUE : VK_FALSE;
-
-    depthStencilState.front.failOp = VulkanStencilOp(descriptor->stencilFront.failOp);
-    depthStencilState.front.passOp = VulkanStencilOp(descriptor->stencilFront.passOp);
-    depthStencilState.front.depthFailOp = VulkanStencilOp(descriptor->stencilFront.depthFailOp);
-    depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->stencilFront.compare);
-
-    depthStencilState.back.failOp = VulkanStencilOp(descriptor->stencilBack.failOp);
-    depthStencilState.back.passOp = VulkanStencilOp(descriptor->stencilBack.passOp);
-    depthStencilState.back.depthFailOp = VulkanStencilOp(descriptor->stencilBack.depthFailOp);
-    depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->stencilBack.compare);
-
-    // Dawn doesn't have separate front and back stencil masks.
-    depthStencilState.front.compareMask = descriptor->stencilReadMask;
-    depthStencilState.back.compareMask = descriptor->stencilReadMask;
-    depthStencilState.front.writeMask = descriptor->stencilWriteMask;
-    depthStencilState.back.writeMask = descriptor->stencilWriteMask;
-
-    // The stencil reference is always dynamic
-    depthStencilState.front.reference = 0;
-    depthStencilState.back.reference = 0;
-
-    return depthStencilState;
 }
 
 }  // anonymous namespace
@@ -352,11 +325,11 @@ VkPipelineDepthStencilStateCreateInfo ComputeDepthStencilDesc(const DepthStencil
 // static
 Ref<RenderPipeline> RenderPipeline::CreateUninitialized(
     Device* device,
-    const RenderPipelineDescriptor* descriptor) {
+    const UnpackedPtr<RenderPipelineDescriptor>& descriptor) {
     return AcquireRef(new RenderPipeline(device, descriptor));
 }
 
-MaybeError RenderPipeline::Initialize() {
+MaybeError RenderPipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     const PipelineLayout* layout = ToBackend(GetLayout());
 
@@ -365,16 +338,17 @@ MaybeError RenderPipeline::Initialize() {
 
     // There are at most 2 shader stages in render pipeline, i.e. vertex and fragment
     std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
+    std::array<std::string, 2> shaderStageEntryPoints;
     uint32_t stageCount = 0;
 
     auto AddShaderStage = [&](SingleShaderStage stage, VkShaderStageFlagBits vkStage,
-                              bool clampFragDepth) -> MaybeError {
+                              bool clampFragDepth, bool emitPointSize) -> MaybeError {
         const ProgrammableStage& programmableStage = GetStage(stage);
         ShaderModule::ModuleAndSpirv moduleAndSpirv;
-        DAWN_TRY_ASSIGN(moduleAndSpirv,
-                        ToBackend(programmableStage.module)
-                            ->GetHandleAndSpirv(stage, programmableStage, layout, clampFragDepth,
-                                                /* fullSubgroups */ {}));
+        DAWN_TRY_ASSIGN(moduleAndSpirv, ToBackend(programmableStage.module)
+                                            ->GetHandleAndSpirv(stage, programmableStage, layout,
+                                                                clampFragDepth, emitPointSize,
+                                                                /* fullSubgroups */ {}));
         // Record cache key for each shader since it will become inaccessible later on.
         StreamIn(&mCacheKey, stream::Iterable(moduleAndSpirv.spirv, moduleAndSpirv.wordCount));
 
@@ -385,7 +359,8 @@ MaybeError RenderPipeline::Initialize() {
         shaderStage->flags = 0;
         shaderStage->pSpecializationInfo = nullptr;
         shaderStage->stage = vkStage;
-        shaderStage->pName = moduleAndSpirv.remappedEntryPoint;
+        shaderStageEntryPoints[stageCount] = moduleAndSpirv.remappedEntryPoint;
+        shaderStage->pName = shaderStageEntryPoints[stageCount].c_str();
 
         stageCount++;
         return {};
@@ -393,13 +368,14 @@ MaybeError RenderPipeline::Initialize() {
 
     // Add the vertex stage that's always present.
     DAWN_TRY(AddShaderStage(SingleShaderStage::Vertex, VK_SHADER_STAGE_VERTEX_BIT,
-                            /*clampFragDepth*/ false));
+                            /*clampFragDepth*/ false,
+                            GetPrimitiveTopology() == wgpu::PrimitiveTopology::PointList));
 
     // Add the fragment stage if present.
     if (GetStageMask() & wgpu::ShaderStage::Fragment) {
         bool clampFragDepth = UsesFragDepth() && !HasUnclippedDepth();
         DAWN_TRY(AddShaderStage(SingleShaderStage::Fragment, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                clampFragDepth));
+                                clampFragDepth, /*emitPointSize*/ false));
     }
 
     PipelineVertexInputStateCreateInfoTemporaryAllocations tempAllocations;
@@ -467,14 +443,12 @@ MaybeError RenderPipeline::Initialize() {
     multisample.alphaToCoverageEnable = IsAlphaToCoverageEnabled();
     multisample.alphaToOneEnable = VK_FALSE;
 
-    VkPipelineDepthStencilStateCreateInfo depthStencilState =
-        ComputeDepthStencilDesc(GetDepthStencilState());
+    VkPipelineDepthStencilStateCreateInfo depthStencilState = ComputeDepthStencilDesc();
 
     VkPipelineColorBlendStateCreateInfo colorBlend;
     // colorBlend may hold pointers to elements in colorBlendAttachments, so it must have a
     // definition scope as same as colorBlend
-    ityp::array<ColorAttachmentIndex, VkPipelineColorBlendAttachmentState, kMaxColorAttachments>
-        colorBlendAttachments;
+    PerColorAttachment<VkPipelineColorBlendAttachmentState> colorBlendAttachments;
     if (GetStageMask() & wgpu::ShaderStage::Fragment) {
         // Initialize the "blend state info" that will be chained in the "create info" from the
         // data pre-computed in the ColorState
@@ -611,7 +585,7 @@ VkPipelineVertexInputStateCreateInfo RenderPipeline::ComputeVertexInputDesc(
     PipelineVertexInputStateCreateInfoTemporaryAllocations* tempAllocations) {
     // Fill in the "binding info" that will be chained in the create info
     uint32_t bindingCount = 0;
-    for (VertexBufferSlot slot : IterateBitSet(GetVertexBufferSlotsUsed())) {
+    for (VertexBufferSlot slot : IterateBitSet(GetVertexBuffersUsed())) {
         const VertexBufferInfo& bindingInfo = GetVertexBuffer(slot);
 
         VkVertexInputBindingDescription* bindingDesc = &tempAllocations->bindings[bindingCount];
@@ -649,6 +623,51 @@ VkPipelineVertexInputStateCreateInfo RenderPipeline::ComputeVertexInputDesc(
     return createInfo;
 }
 
+VkPipelineDepthStencilStateCreateInfo RenderPipeline::ComputeDepthStencilDesc() {
+    const DepthStencilState* descriptor = GetDepthStencilState();
+
+    VkPipelineDepthStencilStateCreateInfo depthStencilState;
+    depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencilState.pNext = nullptr;
+    depthStencilState.flags = 0;
+
+    // Depth writes only occur if depth is enabled
+    depthStencilState.depthTestEnable =
+        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
+         !descriptor->depthWriteEnabled)
+            ? VK_FALSE
+            : VK_TRUE;
+    depthStencilState.depthWriteEnable = descriptor->depthWriteEnabled ? VK_TRUE : VK_FALSE;
+    depthStencilState.depthCompareOp = ToVulkanCompareOp(descriptor->depthCompare);
+    depthStencilState.depthBoundsTestEnable = false;
+    depthStencilState.minDepthBounds = 0.0f;
+    depthStencilState.maxDepthBounds = 1.0f;
+
+    depthStencilState.stencilTestEnable = UsesStencil() ? VK_TRUE : VK_FALSE;
+
+    depthStencilState.front.failOp = VulkanStencilOp(descriptor->stencilFront.failOp);
+    depthStencilState.front.passOp = VulkanStencilOp(descriptor->stencilFront.passOp);
+    depthStencilState.front.depthFailOp = VulkanStencilOp(descriptor->stencilFront.depthFailOp);
+    depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->stencilFront.compare);
+
+    depthStencilState.back.failOp = VulkanStencilOp(descriptor->stencilBack.failOp);
+    depthStencilState.back.passOp = VulkanStencilOp(descriptor->stencilBack.passOp);
+    depthStencilState.back.depthFailOp = VulkanStencilOp(descriptor->stencilBack.depthFailOp);
+    depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->stencilBack.compare);
+
+    // Dawn doesn't have separate front and back stencil masks.
+    depthStencilState.front.compareMask = descriptor->stencilReadMask;
+    depthStencilState.back.compareMask = descriptor->stencilReadMask;
+    depthStencilState.front.writeMask = descriptor->stencilWriteMask;
+    depthStencilState.back.writeMask = descriptor->stencilWriteMask;
+
+    // The stencil reference is always dynamic
+    depthStencilState.front.reference = 0;
+    depthStencilState.back.reference = 0;
+
+    return depthStencilState;
+}
+
 RenderPipeline::~RenderPipeline() = default;
 
 void RenderPipeline::DestroyImpl() {
@@ -661,15 +680,6 @@ void RenderPipeline::DestroyImpl() {
 
 VkPipeline RenderPipeline::GetHandle() const {
     return mHandle;
-}
-
-void RenderPipeline::InitializeAsync(Ref<RenderPipelineBase> renderPipeline,
-                                     WGPUCreateRenderPipelineAsyncCallback callback,
-                                     void* userdata) {
-    std::unique_ptr<CreateRenderPipelineAsyncTask> asyncTask =
-        std::make_unique<CreateRenderPipelineAsyncTask>(std::move(renderPipeline), callback,
-                                                        userdata);
-    CreateRenderPipelineAsyncTask::RunAsync(std::move(asyncTask));
 }
 
 }  // namespace dawn::native::vulkan

@@ -44,23 +44,22 @@ struct EnumBitmaskSize<TestAspect> {
 
 }  // namespace dawn::native
 
-namespace dawn {
-
 template <>
-struct IsDawnBitmask<native::TestAspect> {
+struct wgpu::IsWGPUBitmask<dawn::native::TestAspect> {
     static constexpr bool enable = true;
 };
-
-}  // namespace dawn
 
 namespace dawn::native {
 
 static_assert(EnumBitmaskSize<TestAspect>::value == 3);
 
 TEST(EnumMaskIteratorTests, None) {
-    for (TestAspect aspect : IterateEnumMask(static_cast<TestAspect>(0))) {
+    for ([[maybe_unused]] TestAspect aspect : IterateEnumMask(static_cast<TestAspect>(0))) {
+        // Silence a -Wunreachable-code-loop-increment
+        if ((0)) {
+            continue;
+        }
         FAIL();
-        DAWN_UNUSED(aspect);
     }
 }
 

@@ -26,6 +26,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
+#include <string>
+#include <unordered_map>
 
 #include "src/tint/cmd/fuzz/wgsl/fuzz.h"
 #include "src/tint/utils/cli/cli.h"
@@ -42,12 +44,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* input, size_t size) {
     if (size > 0) {
         std::string_view wgsl(reinterpret_cast<const char*>(input), size);
         auto data = tint::DecodeBase64FromComments(wgsl);
-        tint::fuzz::wgsl::Run(wgsl, data.Slice(), options);
+        tint::fuzz::wgsl::Run(wgsl, options, data.Slice());
     }
     return 0;
 }
 
-extern "C" int LLVMFuzzerInitialize(int* argc, const char*** argv) {
+extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
     tint::cli::OptionSet opts;
 
     tint::Vector<std::string_view, 8> arguments;
@@ -64,18 +66,23 @@ extern "C" int LLVMFuzzerInitialize(int* argc, const char*** argv) {
         std::cerr << std::endl;
         // Change args to show libfuzzer help
         std::cerr << "Standard libfuzzer ";  // libfuzzer will print 'Usage:'
-        static const char* help[] = {(*argv)[0], "-help=1"};
+        static char help[] = "-help=1";
         *argc = 2;
-        *argv = help;
+        (*argv)[1] = help;
     };
 
     auto& opt_help = opts.Add<tint::cli::BoolOption>("help", "shows the usage");
+    auto& opt_filter = opts.Add<tint::cli::StringOption>(
+        "filter", "runs only the fuzzers with the given substring");
     auto& opt_concurrent =
         opts.Add<tint::cli::BoolOption>("concurrent", "runs the fuzzers concurrently");
+    auto& opt_verbose =
+        opts.Add<tint::cli::BoolOption>("verbose", "prints the name of each fuzzer before running");
+    auto& opt_dxc = opts.Add<tint::cli::StringOption>("dxc", "path to DXC DLL");
 
     tint::cli::ParseOptions parse_opts;
     parse_opts.ignore_unknown = true;
-    if (auto res = opts.Parse(arguments, parse_opts); !res) {
+    if (auto res = opts.Parse(arguments, parse_opts); res != tint::Success) {
         show_help();
         std::cerr << res.Failure();
         return 0;
@@ -86,6 +93,9 @@ extern "C" int LLVMFuzzerInitialize(int* argc, const char*** argv) {
         return 0;
     }
 
+    options.filter = opt_filter.value.value_or("");
     options.run_concurrently = opt_concurrent.value.value_or(false);
+    options.verbose = opt_verbose.value.value_or(false);
+    options.dxc = opt_dxc.value.value_or("");
     return 0;
 }

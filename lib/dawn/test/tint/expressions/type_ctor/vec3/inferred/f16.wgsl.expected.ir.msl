@@ -1,6 +1,3 @@
-SKIP: FAILED
-
 #include <metal_stdlib>
 using namespace metal;
 
-thread half3 v = half3(0.0h, 1.0h, 2.0h);

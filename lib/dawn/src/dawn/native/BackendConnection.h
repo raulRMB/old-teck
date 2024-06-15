@@ -31,10 +31,11 @@
 #include <memory>
 #include <vector>
 
-#include "dawn/common/NonCopyable.h"
+#include "dawn/common/NonMovable.h"
 #include "dawn/native/DawnNative.h"
 #include "dawn/native/PhysicalDevice.h"
 #include "dawn/native/Toggles.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native {
 
@@ -52,16 +53,10 @@ class BackendConnection : NonMovable {
     // Calling this multiple times in succession should return a vector with duplicate
     // references to the same PhysicalDevices (i.e. the backend should cache them).
     virtual std::vector<Ref<PhysicalDeviceBase>> DiscoverPhysicalDevices(
-        const RequestAdapterOptions* options) = 0;
-
-    // Clear all internal refs to physical devices.
-    virtual void ClearPhysicalDevices() = 0;
-
-    // Get the number of internally-referenced physical devices, for testing.
-    virtual size_t GetPhysicalDeviceCountForTesting() const = 0;
+        const UnpackedPtr<RequestAdapterOptions>& options) = 0;
 
   private:
-    InstanceBase* mInstance = nullptr;
+    raw_ptr<InstanceBase> mInstance = nullptr;
     wgpu::BackendType mType;
 };
 

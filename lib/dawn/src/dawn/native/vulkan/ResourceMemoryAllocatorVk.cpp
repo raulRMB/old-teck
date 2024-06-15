@@ -32,11 +32,13 @@
 
 #include "dawn/common/Math.h"
 #include "dawn/native/BuddyMemoryAllocator.h"
+#include "dawn/native/Queue.h"
 #include "dawn/native/ResourceHeapAllocator.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/ResourceHeapVk.h"
 #include "dawn/native/vulkan/VulkanError.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::vulkan {
 
@@ -130,7 +132,7 @@ class ResourceMemoryAllocator::SingleTypeAllocator : public ResourceHeapAllocato
     }
 
   private:
-    Device* mDevice;
+    raw_ptr<Device> mDevice;
     size_t mMemoryTypeIndex;
     VkDeviceSize mMemoryHeapSize;
     PooledResourceMemoryAllocator mPooledMemoryAllocator;
@@ -155,7 +157,7 @@ ResultOrError<ResourceMemoryAllocation> ResourceMemoryAllocator::Allocate(
     const VkMemoryRequirements& requirements,
     MemoryKind kind,
     bool forceDisableSubAllocation) {
-    // The Vulkan spec guarantees at least on memory type is valid.
+    // The Vulkan spec guarantees at least one memory type is valid.
     int memoryType = FindBestTypeIndex(requirements, kind);
     DAWN_ASSERT(memoryType >= 0);
 
@@ -178,9 +180,17 @@ ResultOrError<ResourceMemoryAllocation> ResourceMemoryAllocator::Allocate(
         // linear (resp. opaque) resources can coexist in the same page. In particular Nvidia
         // GPUs often use a granularity of 64k which will lead to a lot of wasted spec. Revisit
         // with a more efficient algorithm later.
+        const VulkanDeviceInfo& info = mDevice->GetDeviceInfo();
         uint64_t alignment =
-            std::max(requirements.alignment,
-                     mDevice->GetDeviceInfo().properties.limits.bufferImageGranularity);
+            std::max(requirements.alignment, info.properties.limits.bufferImageGranularity);
+
+        if ((info.memoryTypes[memoryType].propertyFlags &
+             (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            // Host accesses to non-coherent memory are bounded by nonCoherentAtomSize. We may map
+            // host visible "non-mappable" memory when taking the fast path during buffer uploads.
+            alignment = std::max(alignment, info.properties.limits.nonCoherentAtomSize);
+        }
 
         ResourceMemoryAllocation subAllocation;
         DAWN_TRY_ASSIGN(subAllocation, mAllocatorsPerType[memoryType]->AllocateMemory(
@@ -232,7 +242,8 @@ void ResourceMemoryAllocator::Deallocate(ResourceMemoryAllocation* allocation) {
         // TODO(crbug.com/dawn/851): Maybe we can produce the correct barriers to reduce the
         // latency to reclaim memory.
         case AllocationMethod::kSubAllocated:
-            mSubAllocationsToDelete.Enqueue(*allocation, mDevice->GetPendingCommandSerial());
+            mSubAllocationsToDelete.Enqueue(*allocation,
+                                            mDevice->GetQueue()->GetPendingCommandSerial());
             break;
 
         default:

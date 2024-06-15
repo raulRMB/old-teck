@@ -35,7 +35,7 @@ namespace dawn {
 
 static constexpr uint32_t kMaxBindGroups = 4u;
 static constexpr uint32_t kMaxBindingsPerBindGroup = 1000u;
-static constexpr uint8_t kMaxVertexAttributes = 16u;
+static constexpr uint8_t kMaxVertexAttributes = 30u;
 static constexpr uint8_t kMaxVertexBuffers = 8u;
 static constexpr uint32_t kMaxVertexBufferArrayStride = 2048u;
 static constexpr uint32_t kMaxBindGroupsPlusVertexBuffers = 24u;
@@ -43,7 +43,7 @@ static constexpr uint32_t kNumStages = 3;
 static constexpr uint8_t kMaxColorAttachments = 8u;
 static constexpr uint32_t kTextureBytesPerRowAlignment = 256u;
 static constexpr uint32_t kQueryResolveAlignment = 256u;
-static constexpr uint32_t kMaxInterStageShaderComponents = 60u;
+static constexpr uint32_t kMaxInterStageShaderComponents = 64u;
 static constexpr uint32_t kMaxInterStageShaderVariables = 16u;
 static constexpr uint64_t kAssumedMaxBufferSize =
     0x80000000u;  // Use 2 GB when the limit is unavailable

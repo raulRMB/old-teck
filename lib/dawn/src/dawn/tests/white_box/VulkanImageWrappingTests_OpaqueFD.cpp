@@ -37,6 +37,7 @@
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/tests/white_box/VulkanImageWrappingTests_OpaqueFD.h"
 #include "gtest/gtest.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::vulkan {
 
@@ -88,7 +89,7 @@ class ExternalTextureOpaqueFD : public VulkanImageWrappingTestBackend::ExternalT
     int Dup() const { return dup(mFd); }
 
   private:
-    native::vulkan::Device* mDevice;
+    raw_ptr<native::vulkan::Device> mDevice;
     int mFd = -1;
     VkDeviceMemory mAllocation = VK_NULL_HANDLE;
     VkImage mHandle = VK_NULL_HANDLE;
@@ -208,10 +209,11 @@ class VulkanImageWrappingTestBackendOpaqueFD : public VulkanImageWrappingTestBac
         createInfo.queueFamilyIndexCount = 0;
         createInfo.pQueueFamilyIndices = nullptr;
         createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        PNextChainBuilder createChain(&createInfo);
 
         VkExternalMemoryImageCreateInfoKHR externalInfo;
         externalInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+
+        PNextChainBuilder createChain(&createInfo);
         createChain.Add(&externalInfo, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR);
 
         return deviceVk->fn.CreateImage(deviceVk->GetVkDevice(), &createInfo, nullptr, &**image);
@@ -235,11 +237,12 @@ class VulkanImageWrappingTestBackendOpaqueFD : public VulkanImageWrappingTestBac
         allocateInfo.pNext = nullptr;
         allocateInfo.allocationSize = requirements.size;
         allocateInfo.memoryTypeIndex = static_cast<uint32_t>(bestType);
-        PNextChainBuilder allocateChain(&allocateInfo);
 
         // Import memory from file descriptor
         VkExportMemoryAllocateInfoKHR externalInfo;
         externalInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+
+        PNextChainBuilder allocateChain(&allocateInfo);
         allocateChain.Add(&externalInfo, VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR);
 
         // Use a dedicated memory allocation if testing that path.
@@ -289,7 +292,7 @@ class VulkanImageWrappingTestBackendOpaqueFD : public VulkanImageWrappingTestBac
                                int* memoryFd) {}
 
     wgpu::Device mDevice;
-    native::vulkan::Device* mDeviceVk;
+    raw_ptr<native::vulkan::Device> mDeviceVk;
 };
 
 std::unique_ptr<VulkanImageWrappingTestBackend> CreateOpaqueFDBackend(const wgpu::Device& device) {

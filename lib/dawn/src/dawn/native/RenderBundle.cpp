@@ -58,6 +58,7 @@ RenderBundleBase::RenderBundleBase(RenderBundleEncoder* encoder,
 }
 
 void RenderBundleBase::DestroyImpl() {
+    mIndirectDrawMetadata.ClearIndexedIndirectBufferValidationInfo();
     FreeCommands(&mCommands);
 
     // Remove reference to the attachment state so that we don't have lingering references to
@@ -66,8 +67,8 @@ void RenderBundleBase::DestroyImpl() {
 }
 
 // static
-RenderBundleBase* RenderBundleBase::MakeError(DeviceBase* device, const char* label) {
-    return new RenderBundleBase(device, ObjectBase::kError, label);
+Ref<RenderBundleBase> RenderBundleBase::MakeError(DeviceBase* device, const char* label) {
+    return AcquireRef(new RenderBundleBase(device, ObjectBase::kError, label));
 }
 
 RenderBundleBase::RenderBundleBase(DeviceBase* device, ErrorTag errorTag, const char* label)

@@ -53,21 +53,18 @@ void AsyncTaskManager::PostTask(AsyncTask asyncTask) {
 
     // Ref the task since it is accessed inside the worker function.
     // The worker function will acquire and release the task upon completion.
-    waitableTask->Reference();
+    waitableTask->AddRef();
     waitableTask->waitableEvent =
         mWorkerTaskPool->PostWorkerTask(DoWaitableTask, waitableTask.Get());
 }
 
 void AsyncTaskManager::HandleTaskCompletion(WaitableTask* task) {
     std::lock_guard<std::mutex> lock(mPendingTasksMutex);
-    auto iter = mPendingTasks.find(task);
-    if (iter != mPendingTasks.end()) {
-        mPendingTasks.erase(iter);
-    }
+    mPendingTasks.erase(task);
 }
 
 void AsyncTaskManager::WaitAllPendingTasks() {
-    std::unordered_map<WaitableTask*, Ref<WaitableTask>> allPendingTasks;
+    absl::flat_hash_map<WaitableTask*, Ref<WaitableTask>> allPendingTasks;
 
     {
         std::lock_guard<std::mutex> lock(mPendingTasksMutex);

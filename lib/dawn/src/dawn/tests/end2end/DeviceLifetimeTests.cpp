@@ -99,17 +99,21 @@ TEST_P(DeviceLifetimeTests, DroppedInsideQueueOnSubmittedWorkDone) {
 // Test that the device can be dropped while a popErrorScope callback is in flight.
 TEST_P(DeviceLifetimeTests, DroppedWhilePopErrorScope) {
     device.PushErrorScope(wgpu::ErrorFilter::Validation);
-    bool wire = UsesWire();
+    bool done = false;
+
     device.PopErrorScope(
-        [](WGPUErrorType type, const char*, void* userdata) {
-            const bool wire = *static_cast<bool*>(userdata);
-            // On the wire, all callbacks get rejected immediately with once the device is deleted.
-            // In native, popErrorScope is called synchronously.
-            // TODO(crbug.com/dawn/1122): These callbacks should be made consistent.
-            EXPECT_EQ(type, wire ? WGPUErrorType_Unknown : WGPUErrorType_NoError);
+        wgpu::CallbackMode::AllowProcessEvents,
+        [](wgpu::PopErrorScopeStatus status, wgpu::ErrorType type, const char*, bool* done) {
+            *done = true;
+            EXPECT_EQ(status, wgpu::PopErrorScopeStatus::Success);
+            EXPECT_EQ(type, wgpu::ErrorType::NoError);
         },
-        &wire);
+        &done);
     device = nullptr;
+
+    while (!done) {
+        WaitABit();
+    }
 }
 
 // Test that the device can be dropped inside an onSubmittedWorkDone callback.
@@ -123,19 +127,17 @@ TEST_P(DeviceLifetimeTests, DroppedInsidePopErrorScope) {
     // Ask for a popErrorScope callback and drop the device inside the callback.
     Userdata data = Userdata{std::move(device), false};
     data.device.PopErrorScope(
-        [](WGPUErrorType type, const char*, void* userdata) {
-            EXPECT_EQ(type, WGPUErrorType_NoError);
-            static_cast<Userdata*>(userdata)->device = nullptr;
-            static_cast<Userdata*>(userdata)->done = true;
+        wgpu::CallbackMode::AllowProcessEvents,
+        [](wgpu::PopErrorScopeStatus status, wgpu::ErrorType type, const char*,
+           Userdata* userdata) {
+            EXPECT_EQ(status, wgpu::PopErrorScopeStatus::Success);
+            EXPECT_EQ(type, wgpu::ErrorType::NoError);
+            userdata->device = nullptr;
+            userdata->done = true;
         },
         &data);
 
     while (!data.done) {
-        // WaitABit no longer can call tick since we've moved the device from the fixture into the
-        // userdata.
-        if (data.device) {
-            data.device.Tick();
-        }
         WaitABit();
     }
 }
@@ -349,7 +351,6 @@ TEST_P(DeviceLifetimeTests, DroppedWhileCreatePipelineAsync) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     device.CreateComputePipelineAsync(
         &desc,
@@ -362,6 +363,10 @@ TEST_P(DeviceLifetimeTests, DroppedWhileCreatePipelineAsync) {
         nullptr);
 
     device = nullptr;
+    // Need to call ProcessEvents, otherwise it will be an instance drop.
+    // TODO(dawn:2353): Update to use WGPUCreateComputePipelineAsyncCallbackInfo version of
+    // CreateComputePipelineAsync and then we don't need to call ProcessEvents explicitly.
+    instance.ProcessEvents();
 }
 
 // Test that the device can be dropped inside a createPipelineAsync callback
@@ -370,7 +375,6 @@ TEST_P(DeviceLifetimeTests, DroppedInsideCreatePipelineAsync) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     struct Userdata {
         wgpu::Device device;
@@ -407,7 +411,6 @@ TEST_P(DeviceLifetimeTests, DroppedWhileCreatePipelineAsyncAlreadyCached) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     // Create a pipeline ahead of time so it's in the cache.
     wgpu::ComputePipeline p = device.CreateComputePipeline(&desc);
@@ -438,7 +441,6 @@ TEST_P(DeviceLifetimeTests, DroppedInsideCreatePipelineAsyncAlreadyCached) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     // Create a pipeline ahead of time so it's in the cache.
     wgpu::ComputePipeline p = device.CreateComputePipeline(&desc);
@@ -480,7 +482,6 @@ TEST_P(DeviceLifetimeTests, DroppedWhileCreatePipelineAsyncRaceCache) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     device.CreateComputePipelineAsync(
         &desc,
@@ -496,6 +497,10 @@ TEST_P(DeviceLifetimeTests, DroppedWhileCreatePipelineAsyncRaceCache) {
     wgpu::ComputePipeline p = device.CreateComputePipeline(&desc);
 
     device = nullptr;
+    // Need to call ProcessEvents, otherwise it will be an instance drop.
+    // TODO(dawn:2353): Update to use WGPUCreateComputePipelineAsyncCallbackInfo version of
+    // CreateComputePipelineAsync and then we don't need to call ProcessEvents explicitly
+    instance.ProcessEvents();
 }
 
 // Test that the device can be dropped inside a createPipelineAsync callback which will race
@@ -505,7 +510,6 @@ TEST_P(DeviceLifetimeTests, DroppedInsideCreatePipelineAsyncRaceCache) {
     desc.compute.module = utils::CreateShaderModule(device, R"(
     @compute @workgroup_size(1) fn main() {
     })");
-    desc.compute.entryPoint = "main";
 
     struct Userdata {
         wgpu::Device device;
@@ -556,9 +560,9 @@ TEST_P(DeviceLifetimeTests, DropDevice2InProcessEvents) {
     // The following callback will drop the 2nd device. It won't be triggered until
     // instance.ProcessEvents() is called.
     device.PopErrorScope(
-        [](WGPUErrorType type, const char*, void* userdataPtr) {
-            auto userdata = static_cast<UserData*>(userdataPtr);
-
+        wgpu::CallbackMode::AllowProcessEvents,
+        [](wgpu::PopErrorScopeStatus status, wgpu::ErrorType type, const char*,
+           UserData* userdata) {
             userdata->device2 = nullptr;
             userdata->done = true;
         },

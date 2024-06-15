@@ -42,32 +42,32 @@ class PersistentPipelineState;
 
 class RenderPipeline final : public RenderPipelineBase, public PipelineGL {
   public:
-    static Ref<RenderPipeline> CreateUninitialized(Device* device,
-                                                   const RenderPipelineDescriptor* descriptor);
+    static Ref<RenderPipeline> CreateUninitialized(
+        Device* device,
+        const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
 
     GLenum GetGLPrimitiveTopology() const;
-    ityp::bitset<VertexAttributeLocation, kMaxVertexAttributes> GetAttributesUsingVertexBuffer(
-        VertexBufferSlot slot) const;
+    VertexAttributeMask GetAttributesUsingVertexBuffer(VertexBufferSlot slot) const;
 
     void ApplyNow(PersistentPipelineState& persistentPipelineState);
 
-    MaybeError Initialize() override;
+    MaybeError InitializeImpl() override;
 
   private:
-    RenderPipeline(Device* device, const RenderPipelineDescriptor* descriptor);
+    RenderPipeline(Device* device, const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
     ~RenderPipeline() override;
     void DestroyImpl() override;
 
     void CreateVAOForVertexState();
 
+    void ApplyDepthStencilState(const OpenGLFunctions& gl,
+                                PersistentPipelineState* persistentPipelineState);
+
     // TODO(yunchao.he@intel.com): vao need to be deduplicated between pipelines.
     GLuint mVertexArrayObject;
     GLenum mGlPrimitiveTopology;
 
-    ityp::array<VertexBufferSlot,
-                ityp::bitset<VertexAttributeLocation, kMaxVertexAttributes>,
-                kMaxVertexBuffers>
-        mAttributesUsingVertexBuffer;
+    PerVertexBuffer<VertexAttributeMask> mAttributesUsingVertexBuffer;
 };
 
 }  // namespace dawn::native::opengl

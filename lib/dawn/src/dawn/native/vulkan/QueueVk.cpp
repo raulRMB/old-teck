@@ -42,6 +42,7 @@
 #include "dawn/native/vulkan/VulkanError.h"
 #include "dawn/platform/DawnPlatform.h"
 #include "dawn/platform/tracing/TraceEvent.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::vulkan {
 
@@ -64,7 +65,7 @@ class ScopedSignalSemaphore : public NonCopyable {
     VkSemaphore* InitializeInto() { return &mSemaphore; }
 
   private:
-    Device* mDevice = nullptr;
+    raw_ptr<Device> mDevice = nullptr;
     VkSemaphore mSemaphore = VK_NULL_HANDLE;
 };
 
@@ -187,11 +188,11 @@ MaybeError Queue::WaitForIdleForDestruction() {
     Device* device = ToBackend(GetDevice());
     VkDevice vkDevice = device->GetVkDevice();
 
-    VkResult waitIdleResult = VkResult::WrapUnsafe(device->fn.QueueWaitIdle(mQueue));
     // Ignore the result of QueueWaitIdle: it can return OOM which we can't really do anything
     // about, Device lost, which means workloads running on the GPU are no longer accessible
     // (so they are as good as waited on) or success.
-    DAWN_UNUSED(waitIdleResult);
+    [[maybe_unused]] VkResult waitIdleResult =
+        VkResult::WrapUnsafe(device->fn.QueueWaitIdle(mQueue));
 
     // Make sure all fences are complete by explicitly waiting on them all
     mFencesInFlight.Use([&](auto fencesInFlight) {
@@ -228,9 +229,9 @@ MaybeError Queue::WaitForIdleForDestruction() {
     return {};
 }
 
-CommandRecordingContext* Queue::GetPendingRecordingContext(Device::SubmitMode submitMode) {
+CommandRecordingContext* Queue::GetPendingRecordingContext(SubmitMode submitMode) {
     DAWN_ASSERT(mRecordingContext.commandBuffer != VK_NULL_HANDLE);
-    mRecordingContext.needsSubmit |= (submitMode == DeviceBase::SubmitMode::Normal);
+    mRecordingContext.needsSubmit |= (submitMode == SubmitMode::Normal);
     mRecordingContext.used = true;
     return &mRecordingContext;
 }
@@ -363,7 +364,7 @@ MaybeError Queue::SubmitPendingCommands() {
         mRecordingContext.waitSemaphores.insert(mRecordingContext.waitSemaphores.end(),
                                                 waitRequirements.begin(), waitRequirements.end());
 
-        SharedTextureMemoryContents* contents = texture->GetSharedTextureMemoryContents();
+        SharedResourceMemoryContents* contents = texture->GetSharedResourceMemoryContents();
         if (contents != nullptr) {
             SharedTextureMemoryBase::PendingFenceList fences;
             contents->AcquirePendingFences(&fences);

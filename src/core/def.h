@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
+#include <array>
 #include "glm/glm.hpp"
 #include "glm/ext/quaternion_common.hpp"
 
@@ -28,8 +30,13 @@ using m4 = glm::mat4;
 
 using quat = glm::quat;
 
+template<typename T, size_t S>
+using tkArray = std::array<T, S>;
+
 template<typename T>
 using tkDArray = std::vector<T>;
+
+using tkString = std::string;
 
 #define TK_SUCCESS 0
 #define TK_FAILURE 1
@@ -39,6 +46,9 @@ using tkDArray = std::vector<T>;
 #define TK_EXIT_FAILURE 1
 
 #define TK_ATTEMPT(x) if (x != TK_EXIT_SUCCESS) { return TK_EXIT_FAILURE; }
+
+const i32 kWindowWidth = 400;
+const i32 kWindowHeight = 400;
 
 #endif //TK_DEFINES_H
 

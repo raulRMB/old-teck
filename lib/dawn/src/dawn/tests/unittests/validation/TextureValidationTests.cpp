@@ -25,10 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "dawn/tests/unittests/validation/ValidationTest.h"
+#include <vector>
 
 #include "dawn/common/Constants.h"
 #include "dawn/common/Math.h"
+#include "dawn/tests/unittests/validation/ValidationTest.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
 #include "dawn/utils/TextureUtils.h"
 #include "dawn/utils/WGPUHelpers.h"
@@ -638,7 +639,7 @@ TEST_F(TextureValidationTest, TextureFormatNotSupportTextureUsageStorage) {
 
     for (wgpu::TextureFormat format : utils::kAllTextureFormats) {
         descriptor.format = format;
-        if (utils::TextureFormatSupportsStorageTexture(format, UseCompatibilityMode())) {
+        if (utils::TextureFormatSupportsStorageTexture(format, device, UseCompatibilityMode())) {
             device.CreateTexture(&descriptor);
         } else {
             ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
@@ -713,12 +714,8 @@ TEST_F(TextureValidationTest, UseASTCFormatWithoutEnablingFeature) {
 
 class D32S8TextureFormatsValidationTests : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Depth32FloatStencil8};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Depth32FloatStencil8};
     }
 };
 
@@ -735,15 +732,9 @@ TEST_F(D32S8TextureFormatsValidationTests, DepthStencilFormatsFor3D) {
 
 class CompressedTextureFormatsValidationTests : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[3] = {wgpu::FeatureName::TextureCompressionBC,
-                                                 wgpu::FeatureName::TextureCompressionETC2,
-                                                 wgpu::FeatureName::TextureCompressionASTC};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 3;
-
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::TextureCompressionBC, wgpu::FeatureName::TextureCompressionETC2,
+                wgpu::FeatureName::TextureCompressionASTC};
     }
 
     wgpu::TextureDescriptor CreateDefaultTextureDescriptor() {
@@ -892,12 +883,8 @@ TEST_F(CompressedTextureFormatsValidationTests, TextureSize) {
 
 class RG11B10UfloatTextureFormatsValidationTests : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::RG11B10UfloatRenderable};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::RG11B10UfloatRenderable};
     }
 };
 
@@ -915,12 +902,8 @@ TEST_F(RG11B10UfloatTextureFormatsValidationTests, RenderableFeature) {
 
 class BGRA8UnormTextureFormatsValidationTests : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::BGRA8UnormStorage};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::BGRA8UnormStorage};
     }
 };
 
@@ -934,20 +917,16 @@ TEST_F(BGRA8UnormTextureFormatsValidationTests, StorageFeature) {
     device.CreateTexture(&descriptor);
 }
 
-class Norm16TextureFormatsValidationTests : public TextureValidationTest {
+class Unorm16TextureFormatsValidationTests : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Norm16TextureFormats};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Unorm16TextureFormats};
     }
 };
 
 // Test that Norm16 formats are valid as renderable and sample-able texture if
 // 'norm16-texture-formats' is enabled.
-TEST_F(Norm16TextureFormatsValidationTests, RenderAndSample) {
+TEST_F(Unorm16TextureFormatsValidationTests, RenderAndSample) {
     wgpu::TextureDescriptor descriptor;
     descriptor.size = {1, 1, 1};
     descriptor.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding;
@@ -957,9 +936,21 @@ TEST_F(Norm16TextureFormatsValidationTests, RenderAndSample) {
 
     descriptor.format = wgpu::TextureFormat::RG16Unorm;
     device.CreateTexture(&descriptor);
+}
 
-    descriptor.format = wgpu::TextureFormat::RGBA16Unorm;
-    device.CreateTexture(&descriptor);
+class Snorm16TextureFormatsValidationTests : public TextureValidationTest {
+  protected:
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Snorm16TextureFormats};
+    }
+};
+
+// Test that Norm16 formats are valid as renderable and sample-able texture if
+// 'norm16-texture-formats' is enabled.
+TEST_F(Snorm16TextureFormatsValidationTests, RenderAndSample) {
+    wgpu::TextureDescriptor descriptor;
+    descriptor.size = {1, 1, 1};
+    descriptor.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding;
 
     descriptor.format = wgpu::TextureFormat::R16Snorm;
     device.CreateTexture(&descriptor);
@@ -1094,6 +1085,8 @@ TEST_F(TextureValidationTest, APIValidateTextureDescriptor) {
     desc.format = wgpu::TextureFormat::RGBA8Unorm;
     desc.size = {1, 1, 1};
     desc.usage = wgpu::TextureUsage::RenderAttachment;
+    // Spot-test for defaulting of .dimension.
+    desc.dimension = wgpu::TextureDimension::Undefined;
 
     device.ValidateTextureDescriptor(&desc);
 
@@ -1114,12 +1107,8 @@ TEST_F(TextureValidationTest, TransientAttachmentOnUnsupportedDevice) {
 
 class TransientAttachmentValidationTest : public TextureValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::TransientAttachments};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::TransientAttachments};
     }
 };
 

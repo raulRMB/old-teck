@@ -48,8 +48,8 @@ struct State {
     /// Process the module.
     void Process() {
         // Loop over every instruction looking for access instructions.
-        for (auto* inst : ir.instructions.Objects()) {
-            if (auto* access = inst->As<ir::Access>(); access && access->Alive()) {
+        for (auto* inst : ir.Instructions()) {
+            if (auto* access = inst->As<ir::Access>()) {
                 // Look for places where the result of this access instruction is used as a base
                 // pointer for another access instruction.
                 access->Result(0)->ForEachUse([&](Usage use) {
@@ -81,7 +81,7 @@ struct State {
 
 Result<SuccessType> CombineAccessInstructions(Module& ir) {
     auto result = ValidateAndDumpIfNeeded(ir, "CombineAccessInstructions transform");
-    if (!result) {
+    if (result != Success) {
         return result;
     }
 

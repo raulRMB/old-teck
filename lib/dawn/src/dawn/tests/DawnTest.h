@@ -53,6 +53,7 @@
 #include "dawn/webgpu_cpp_print.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 // Getting data back from Dawn is done in an async manners so all expectations are "deferred"
 // until the end of the test. Also expectations use a copy to a MapRead buffer to get the data
@@ -126,7 +127,7 @@
     EXPECT_CALL(mDeviceErrorCallback,                                             \
                 Call(testing::Ne(WGPUErrorType_NoError), matcher, device.Get())); \
     statement;                                                                    \
-    device.Tick();                                                                \
+    instance.ProcessEvents();                                                     \
     FlushWire();                                                                  \
     testing::Mock::VerifyAndClearExpectations(&mDeviceErrorCallback);             \
     do {                                                                          \
@@ -262,6 +263,7 @@ class DawnTestBase {
     bool IsANGLESwiftShader() const;
     bool IsANGLED3D11() const;
     bool IsWARP() const;
+    bool IsMesaSoftware() const;
 
     bool IsIntelGen9() const;
     bool IsIntelGen12() const;
@@ -270,6 +272,8 @@ class DawnTestBase {
     bool IsLinux() const;
     bool IsMacOS(int32_t majorVersion = -1, int32_t minorVersion = -1) const;
     bool IsAndroid() const;
+
+    bool IsMesa(const std::string& mesaVersion = "") const;
 
     bool UsesWire() const;
     bool IsImplicitDeviceSyncEnabled() const;
@@ -327,13 +331,13 @@ class DawnTestBase {
     DawnProcTable backendProcs = {};
     WGPUDevice backendDevice = nullptr;
 
-    size_t mLastWarningCount = 0;
+    uint64_t mLastWarningCount = 0;
 
     // Mock callbacks tracking errors and destruction. These are strict mocks because any errors or
     // device loss that aren't expected should result in test failures and not just some warnings
     // printed to stdout.
     testing::StrictMock<testing::MockCallback<WGPUErrorCallback>> mDeviceErrorCallback;
-    testing::StrictMock<testing::MockCallback<WGPUDeviceLostCallback>> mDeviceLostCallback;
+    testing::StrictMock<testing::MockCallback<WGPUDeviceLostCallbackNew>> mDeviceLostCallback;
 
     // Helper methods to implement the EXPECT_ macros
     std::ostringstream& AddBufferExpectation(const char* file,
@@ -376,7 +380,7 @@ class DawnTestBase {
                                               wgpu::TextureAspect aspect = wgpu::TextureAspect::All,
                                               uint32_t bytesPerRow = 0) {
         uint32_t texelBlockSize = utils::GetTexelBlockSizeInBytes(format);
-        uint32_t texelComponentCount = utils::GetWGSLRenderableColorTextureComponentCount(format);
+        uint32_t texelComponentCount = utils::GetTextureComponentCount(format);
 
         return AddTextureExpectationImpl(
             file, line, std::move(targetDevice),
@@ -603,6 +607,8 @@ class DawnTestBase {
     wgpu::SupportedLimits GetAdapterLimits();
     wgpu::SupportedLimits GetSupportedLimits();
 
+    uint64_t GetDeprecationWarningCountForTesting() const;
+
     void* GetUniqueUserdata();
 
   private:
@@ -631,12 +637,14 @@ class DawnTestBase {
                                                   uint32_t dataSize,
                                                   uint32_t bytesPerRow);
 
-    std::ostringstream& ExpectSampledFloatDataImpl(wgpu::TextureView textureView,
-                                                   const char* wgslTextureType,
+    std::ostringstream& ExpectSampledFloatDataImpl(wgpu::Texture texture,
                                                    uint32_t width,
                                                    uint32_t height,
                                                    uint32_t componentCount,
+                                                   uint32_t arrayLayer,
+                                                   uint32_t mipLevel,
                                                    uint32_t sampleCount,
+                                                   wgpu::TextureAspect aspect,
                                                    detail::Expectation* expectation);
 
     // MapRead buffers used to get data for the expectations
@@ -644,7 +652,7 @@ class DawnTestBase {
         wgpu::Device device;
         wgpu::Buffer buffer;
         uint64_t bufferSize;
-        const void* mappedData = nullptr;
+        raw_ptr<const void> mappedData = nullptr;
     };
     std::vector<ReadbackSlot> mReadbackSlots;
 
@@ -707,20 +715,20 @@ class DawnTestBase {
 #define DAWN_SUPPRESS_TEST_IF(condition) \
     DAWN_SKIP_TEST_IF_BASE(!RunSuppressedTests() && condition, "suppressed", condition)
 
-#define EXPECT_DEPRECATION_WARNINGS(statement, n)                                               \
-    do {                                                                                        \
-        if (UsesWire()) {                                                                       \
-            statement;                                                                          \
-        } else {                                                                                \
-            size_t warningsBefore = native::GetDeprecationWarningCountForTesting(device.Get()); \
-            statement;                                                                          \
-            size_t warningsAfter = native::GetDeprecationWarningCountForTesting(device.Get());  \
-            EXPECT_EQ(mLastWarningCount, warningsBefore);                                       \
-            if (!HasToggleEnabled("skip_validation")) {                                         \
-                EXPECT_EQ(warningsAfter, warningsBefore + n);                                   \
-            }                                                                                   \
-            mLastWarningCount = warningsAfter;                                                  \
-        }                                                                                       \
+#define EXPECT_DEPRECATION_WARNINGS(statement, n)                             \
+    do {                                                                      \
+        if (UsesWire()) {                                                     \
+            statement;                                                        \
+        } else {                                                              \
+            uint64_t warningsBefore = GetDeprecationWarningCountForTesting(); \
+            statement;                                                        \
+            uint64_t warningsAfter = GetDeprecationWarningCountForTesting();  \
+            EXPECT_EQ(mLastWarningCount, warningsBefore);                     \
+            if (!HasToggleEnabled("skip_validation")) {                       \
+                EXPECT_EQ(warningsAfter, warningsBefore + n);                 \
+            }                                                                 \
+            mLastWarningCount = warningsAfter;                                \
+        }                                                                     \
     } while (0)
 #define EXPECT_DEPRECATION_WARNING(statement) EXPECT_DEPRECATION_WARNINGS(statement, 1)
 

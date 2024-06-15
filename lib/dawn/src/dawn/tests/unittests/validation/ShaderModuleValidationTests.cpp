@@ -249,6 +249,19 @@ TEST_F(ShaderModuleValidationTest, OnlySpirvOptionsDescriptor) {
     ASSERT_DEVICE_ERROR(device.CreateShaderModule(&desc));
 }
 
+// Test that it is invalid to pass ShaderModuleCompilationOptions if the feature is not enabled.
+TEST_F(ShaderModuleValidationTest, ShaderModuleCompilationOptionsNoFeature) {
+    wgpu::ShaderModuleDescriptor desc = {};
+    wgpu::ShaderModuleWGSLDescriptor wgslDesc = {};
+    wgslDesc.code = "@compute @workgroup_size(1) fn main() {}";
+
+    wgpu::ShaderModuleCompilationOptions compilationOptions = {};
+    desc.nextInChain = &wgslDesc;
+    wgslDesc.nextInChain = &compilationOptions;
+    ASSERT_DEVICE_ERROR(device.CreateShaderModule(&desc),
+                        testing::HasSubstr("FeatureName::ShaderModuleCompilationOptions"));
+}
+
 // Tests that shader module compilation messages can be queried.
 TEST_F(ShaderModuleValidationTest, GetCompilationMessages) {
     // This test works assuming ShaderModule is backed by a native::ShaderModuleBase, which
@@ -305,8 +318,8 @@ TEST_F(ShaderModuleValidationTest, GetCompilationMessages) {
     shaderModule.GetCompilationInfo(callback, nullptr);
 }
 
-// Validate the maximum location of effective inter-stage variables cannot be greater than 14
-// (kMaxInterStageShaderComponents / 4 - 1).
+// Validate the maximum location of effective inter-stage variables cannot be greater than 16
+// (kMaxInterStageShaderVariables == kMaxInterStageShaderComponents / 4).
 TEST_F(ShaderModuleValidationTest, MaximumShaderIOLocations) {
     auto CheckTestPipeline = [&](bool success, uint32_t maximumOutputLocation,
                                  wgpu::ShaderStage failingShaderStage) {
@@ -428,15 +441,15 @@ TEST_F(ShaderModuleValidationTest, MaximumInterStageShaderComponents) {
             if (lastComponentCount == 1) {
                 stream << "f32,";
             } else {
-                stream << " vec" << lastComponentCount << "<f32>,";
+                stream << " vec" << lastComponentCount << "f,";
             }
             stream << std::endl;
         }
 
         if (failingShaderStage == wgpu::ShaderStage::Vertex) {
-            stream << " @builtin(position) pos: vec4f,";
+            stream << " @builtin(position) pos: vec4f," << std::endl;
         }
-        stream << "}\n";
+        stream << "}" << std::endl;
 
         std::string ioStruct = stream.str();
 
@@ -459,37 +472,38 @@ TEST_F(ShaderModuleValidationTest, MaximumInterStageShaderComponents) {
                 } else {
                     errorMatcher = "failingVertex";
                 }
-                pDesc.vertex.entryPoint = "failingVertex";
-                pDesc.vertex.module = utils::CreateShaderModule(device, (ioStruct + R"(
+
+                std::string shader = ioStruct + R"(
                     @vertex fn failingVertex() -> ShaderIO {
                         var shaderIO : ShaderIO;
                         shaderIO.pos = vec4f(0.0, 0.0, 0.0, 1.0);
                         return shaderIO;
                      }
-                )")
-                                                                            .c_str());
-                pDesc.cFragment.module = utils::CreateShaderModule(device, R"(
                     @fragment fn main() -> @location(0) vec4f {
                         return vec4f(0.0);
-                    }
-                )");
+                    })";
+                wgpu::ShaderModule shaderModule = utils::CreateShaderModule(device, shader);
+
+                pDesc.vertex.entryPoint = "failingVertex";
+                pDesc.vertex.module = shaderModule;
+                pDesc.cFragment.module = shaderModule;
                 break;
             }
 
             case wgpu::ShaderStage::Fragment: {
-                errorMatcher = "failingFragment";
-                pDesc.cFragment.entryPoint = "failingFragment";
-                pDesc.cFragment.module = utils::CreateShaderModule(device, (ioStruct + R"(
-                    @fragment fn failingFragment(io : ShaderIO) -> @location(0) vec4f {
+                std::string shader = ioStruct + R"(
+                     @vertex fn main() -> @builtin(position) vec4f {
                         return vec4f(0.0);
                      }
-                )")
-                                                                               .c_str());
-                pDesc.vertex.module = utils::CreateShaderModule(device, R"(
-                    @vertex fn main() -> @builtin(position) vec4f {
+                     @fragment fn failingFragment(io : ShaderIO) -> @location(0) vec4f {
                         return vec4f(0.0);
-                    }
-                )");
+                     })";
+                wgpu::ShaderModule shaderModule = utils::CreateShaderModule(device, shader);
+
+                errorMatcher = "failingFragment";
+                pDesc.cFragment.entryPoint = "failingFragment";
+                pDesc.cFragment.module = shaderModule;
+                pDesc.vertex.module = shaderModule;
                 break;
             }
 
@@ -525,15 +539,22 @@ TEST_F(ShaderModuleValidationTest, MaximumInterStageShaderComponents) {
         CheckTestPipeline(false, kMaxInterStageShaderComponents + 1, wgpu::ShaderStage::Vertex);
     }
 
-    // Verify the total user-defined vertex output component count must be less than
-    // (kMaxInterStageShaderComponents - 1) when the primitive topology is PointList.
+    // Verify the total user-defined vertex output component count must be less than or equal to
+    // (kMaxInterStageShaderComponents - 4) when the primitive topology is PointList.
     {
         constexpr bool kUsePointListAsPrimitiveTopology = true;
         const char* kExtraBuiltins = "";
-        CheckTestPipeline(true, kMaxInterStageShaderComponents - 1, wgpu::ShaderStage::Vertex,
-                          kExtraBuiltins, kUsePointListAsPrimitiveTopology);
-        CheckTestPipeline(false, kMaxInterStageShaderComponents, wgpu::ShaderStage::Vertex,
-                          kExtraBuiltins, kUsePointListAsPrimitiveTopology);
+
+        {
+            uint32_t componentCount = kMaxInterStageShaderComponents - 4;
+            CheckTestPipeline(true, componentCount, wgpu::ShaderStage::Vertex, kExtraBuiltins,
+                              kUsePointListAsPrimitiveTopology);
+        }
+        {
+            uint32_t componentCount = kMaxInterStageShaderComponents - 3;
+            CheckTestPipeline(false, componentCount, wgpu::ShaderStage::Vertex, kExtraBuiltins,
+                              kUsePointListAsPrimitiveTopology);
+        }
     }
 
     // @builtin(position) in fragment shaders shouldn't be counted into the maximum inter-stage
@@ -543,28 +564,37 @@ TEST_F(ShaderModuleValidationTest, MaximumInterStageShaderComponents) {
                           "@builtin(position) fragCoord : vec4f,");
     }
 
-    // @builtin(front_facing) should be counted into the maximum inter-stage component count.
+    // @builtin(front_facing), @builtin(sample_index) and @builtin(sample_mask) should all be
+    // counted into the maximum inter-stage component count. Then the maximum user-defined
+    // inter-stage shader components can only be (kMaxInterStageShaderComponents - 4) because each
+    // user-defined inter-stage shader variable always consumes 4 scalar components.
     {
-        CheckTestPipeline(true, kMaxInterStageShaderComponents - 1, wgpu::ShaderStage::Fragment,
-                          "@builtin(front_facing) frontFacing : bool,");
-        CheckTestPipeline(false, kMaxInterStageShaderComponents, wgpu::ShaderStage::Fragment,
-                          "@builtin(front_facing) frontFacing : bool,");
-    }
+        constexpr uint8_t kMaskFrontFacing = 1;
+        constexpr uint8_t kMaskSampleIndex = 1 << 1;
+        constexpr uint8_t kMaskSampleMask = 1 << 2;
+        for (uint8_t mask = 1; mask <= 7; ++mask) {
+            std::string builtInDeclarations = "";
+            if (mask & kMaskFrontFacing) {
+                builtInDeclarations += "@builtin(front_facing) frontFacing : bool,";
+            }
+            if (mask & kMaskSampleIndex) {
+                builtInDeclarations += "@builtin(sample_index) sampleIndex : u32,";
+            }
+            if (mask & kMaskSampleMask) {
+                builtInDeclarations += "@builtin(sample_mask) sampleMask : u32,";
+            }
 
-    // @builtin(sample_index) should be counted into the maximum inter-stage component count.
-    {
-        CheckTestPipeline(true, kMaxInterStageShaderComponents - 1, wgpu::ShaderStage::Fragment,
-                          "@builtin(sample_index) sampleIndex : u32,");
-        CheckTestPipeline(false, kMaxInterStageShaderComponents, wgpu::ShaderStage::Fragment,
-                          "@builtin(sample_index) sampleIndex : u32,");
-    }
-
-    // @builtin(sample_mask) should be counted into the maximum inter-stage component count.
-    {
-        CheckTestPipeline(true, kMaxInterStageShaderComponents - 1, wgpu::ShaderStage::Fragment,
-                          "@builtin(sample_mask) sampleMask : u32,");
-        CheckTestPipeline(false, kMaxInterStageShaderComponents, wgpu::ShaderStage::Fragment,
-                          "@builtin(sample_mask) sampleMask : u32,");
+            {
+                uint32_t componentCount = kMaxInterStageShaderComponents - 4;
+                CheckTestPipeline(true, componentCount, wgpu::ShaderStage::Fragment,
+                                  builtInDeclarations.c_str());
+            }
+            {
+                uint32_t componentCount = kMaxInterStageShaderComponents - 3;
+                CheckTestPipeline(false, componentCount, wgpu::ShaderStage::Fragment,
+                                  builtInDeclarations.c_str());
+            }
+        }
     }
 }
 
@@ -592,7 +622,6 @@ TEST_F(ShaderModuleValidationTest, MaxBindingNumber) {
     static_assert(kMaxBindingsPerBindGroup == 1000);
 
     wgpu::ComputePipelineDescriptor desc;
-    desc.compute.entryPoint = "main";
 
     // kMaxBindingsPerBindGroup-1 is valid.
     desc.compute.module = utils::CreateShaderModule(device, R"(
@@ -735,52 +764,12 @@ class ShaderModuleExtensionValidationTestBase : public ValidationTest {
         ValidationTest::SetUp();
     }
 
-    // Create testing adapter with the AllowUnsafeAPIs toggle explicitly enabled or disabled,
-    // overriding the instance's toggle.
-    void CreateTestAdapterWithUnsafeAPIToggle(wgpu::Instance instance,
-                                              wgpu::RequestAdapterOptions options,
-                                              bool allowUnsafeAPIs) {
-        wgpu::DawnTogglesDescriptor deviceTogglesDesc{};
-        options.nextInChain = &deviceTogglesDesc;
-        const char* toggle = "allow_unsafe_apis";
-        // Explicitly enable or disable the AllowUnsafeAPIs toggle.
-        if (allowUnsafeAPIs) {
-            deviceTogglesDesc.enabledToggles = &toggle;
-            deviceTogglesDesc.enabledToggleCount = 1;
-        } else {
-            deviceTogglesDesc.disabledToggles = &toggle;
-            deviceTogglesDesc.disabledToggleCount = 1;
-        }
-
-        instance.RequestAdapter(
-            &options,
-            [](WGPURequestAdapterStatus, WGPUAdapter cAdapter, const char*, void* userdata) {
-                *static_cast<wgpu::Adapter*>(userdata) = wgpu::Adapter::Acquire(cAdapter);
-            },
-            &adapter);
-        FlushWire();
-    }
-
-    // Create the device with none or all valid features required.
-    WGPUDevice CreateTestDeviceWithAllFeatures(native::Adapter dawnAdapter,
-                                               wgpu::DeviceDescriptor descriptor,
-                                               bool requireAllFeatures) {
+    std::vector<wgpu::FeatureName> GetAllFeatures() {
         std::vector<wgpu::FeatureName> requiredFeatures;
-
-        if (requireAllFeatures) {
-            // Require all features that the adapter supports.
-            WGPUAdapter adapter = dawnAdapter.Get();
-            const size_t adapterSupportedFeaturesCount =
-                wgpuAdapterEnumerateFeatures(adapter, nullptr);
-            requiredFeatures.resize(adapterSupportedFeaturesCount);
-            wgpuAdapterEnumerateFeatures(
-                adapter, reinterpret_cast<WGPUFeatureName*>(requiredFeatures.data()));
-        }
-
-        descriptor.requiredFeatures = requiredFeatures.data();
-        descriptor.requiredFeatureCount = requiredFeatures.size();
-
-        return dawnAdapter.CreateDevice(&descriptor);
+        const size_t featureCount = adapter.EnumerateFeatures(nullptr);
+        requiredFeatures.resize(featureCount);
+        adapter.EnumerateFeatures(requiredFeatures.data());
+        return requiredFeatures;
     }
 };
 
@@ -795,16 +784,15 @@ struct WGSLExtensionInfo {
 
 constexpr struct WGSLExtensionInfo kExtensions[] = {
     {"f16", false, "shader-f16"},
-    {"chromium_experimental_dp4a", true, "chromium-experimental-dp4a"},
     {"chromium_experimental_subgroups", true, "chromium-experimental-subgroups"},
     {"chromium_experimental_pixel_local", true, "pixel-local-storage-coherent"},
     {"chromium_disable_uniformity_analysis", true, nullptr},
     {"chromium_internal_dual_source_blending", true, "dual-source-blending"},
+    {"chromium_internal_graphite", true, nullptr},
     {"chromium_experimental_framebuffer_fetch", true, "framebuffer-fetch"},
 
     // Currently the following WGSL extensions are not enabled under any situation.
     /*
-    {"chromium_experimental_full_ptr_parameters", true, nullptr},
     {"chromium_experimental_push_constant", true, nullptr},
     {"chromium_internal_relaxed_uniform_layout", true, nullptr},
     */
@@ -814,15 +802,8 @@ constexpr struct WGSLExtensionInfo kExtensions[] = {
 class ShaderModuleExtensionValidationTestSafeNoFeature
     : public ShaderModuleExtensionValidationTestBase {
   protected:
-    void CreateTestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions options) override {
-        // Create a safe adapter
-        CreateTestAdapterWithUnsafeAPIToggle(instance, options, false);
-    }
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        // Create a device requiring no features
-        return CreateTestDeviceWithAllFeatures(dawnAdapter, descriptor, false);
-    }
+    bool AllowUnsafeAPIs() override { return false; }
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override { return {}; }
 };
 
 TEST_F(ShaderModuleExtensionValidationTestSafeNoFeature,
@@ -846,15 +827,7 @@ TEST_F(ShaderModuleExtensionValidationTestSafeNoFeature,
 class ShaderModuleExtensionValidationTestUnsafeNoFeature
     : public ShaderModuleExtensionValidationTestBase {
   protected:
-    void CreateTestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions options) override {
-        // Create an unsafe adapter
-        CreateTestAdapterWithUnsafeAPIToggle(instance, options, true);
-    }
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        // Create a device requiring no features
-        return CreateTestDeviceWithAllFeatures(dawnAdapter, descriptor, false);
-    }
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override { return {}; }
 };
 
 TEST_F(ShaderModuleExtensionValidationTestUnsafeNoFeature,
@@ -878,15 +851,8 @@ TEST_F(ShaderModuleExtensionValidationTestUnsafeNoFeature,
 class ShaderModuleExtensionValidationTestSafeAllFeatures
     : public ShaderModuleExtensionValidationTestBase {
   protected:
-    void CreateTestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions options) override {
-        // Create a safe adapter
-        CreateTestAdapterWithUnsafeAPIToggle(instance, options, false);
-    }
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        // Create a device requiring all features
-        return CreateTestDeviceWithAllFeatures(dawnAdapter, descriptor, true);
-    }
+    bool AllowUnsafeAPIs() override { return false; }
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override { return GetAllFeatures(); }
 };
 
 TEST_F(ShaderModuleExtensionValidationTestSafeAllFeatures, OnlyStableExtensionsAllowed) {
@@ -908,15 +874,7 @@ TEST_F(ShaderModuleExtensionValidationTestSafeAllFeatures, OnlyStableExtensionsA
 class ShaderModuleExtensionValidationTestUnsafeAllFeatures
     : public ShaderModuleExtensionValidationTestBase {
   protected:
-    void CreateTestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions options) override {
-        // Create an unsafe adapter
-        CreateTestAdapterWithUnsafeAPIToggle(instance, options, true);
-    }
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        // Create a device requiring all features
-        return CreateTestDeviceWithAllFeatures(dawnAdapter, descriptor, true);
-    }
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override { return GetAllFeatures(); }
 };
 
 TEST_F(ShaderModuleExtensionValidationTestUnsafeAllFeatures, AllExtensionsAllowed) {
@@ -928,6 +886,23 @@ TEST_F(ShaderModuleExtensionValidationTestUnsafeAllFeatures, AllExtensionsAllowe
         // On an unsafe device with all feature required, all extensions are allowed.
         utils::CreateShaderModule(device, wgsl.c_str());
     }
+}
+
+// Test it is valid to chain ShaderModuleCompilationOptions and path true/false for strictMath.
+TEST_F(ShaderModuleExtensionValidationTestUnsafeAllFeatures, ShaderModuleCompilationOptions) {
+    wgpu::ShaderModuleDescriptor desc = {};
+    wgpu::ShaderModuleWGSLDescriptor wgslDesc = {};
+    wgslDesc.code = "@compute @workgroup_size(1) fn main() {}";
+
+    wgpu::ShaderModuleCompilationOptions compilationOptions = {};
+    desc.nextInChain = &wgslDesc;
+    wgslDesc.nextInChain = &compilationOptions;
+
+    compilationOptions.strictMath = false;
+    device.CreateShaderModule(&desc);
+
+    compilationOptions.strictMath = true;
+    device.CreateShaderModule(&desc);
 }
 
 }  // anonymous namespace

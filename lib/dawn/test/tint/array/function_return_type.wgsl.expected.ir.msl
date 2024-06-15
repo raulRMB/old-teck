@@ -12,6 +12,9 @@ struct tint_array {
   T elements[N];
 };
 
+struct tint_module_vars_struct {
+  device float* s;
+};
 
 tint_array<float, 4> f1() {
   return tint_array<float, 4>{};
@@ -25,8 +28,10 @@ tint_array<tint_array<tint_array<float, 4>, 3>, 2> f3() {
   tint_array<tint_array<float, 4>, 3> const v_2 = f2();
   return tint_array<tint_array<tint_array<float, 4>, 3>, 2>{v_2, f2()};
 }
-kernel void tint_symbol() {
+kernel void tint_symbol(device float* s [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.s=s};
   tint_array<float, 4> const a1 = f1();
   tint_array<tint_array<float, 4>, 3> const a2 = f2();
   tint_array<tint_array<tint_array<float, 4>, 3>, 2> const a3 = f3();
+  (*tint_module_vars.s) = ((a1[0] + a2[0][0]) + a3[0][0][0]);
 }

@@ -35,8 +35,9 @@
 
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/ir/builder.h"
-#include "src/tint/lang/core/ir/disassembler.h"
+#include "src/tint/lang/core/ir/disassembly.h"
 #include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/utils/containers/enum_set.h"
 
 namespace tint::core::ir::transform {
 
@@ -51,18 +52,17 @@ class TransformTestBase : public BASE {
     void Run(TRANSFORM&& transform_func, ARGS&&... args) {
         // Run the transform.
         auto result = transform_func(mod, args...);
-        EXPECT_TRUE(result) << result.Failure();
-        if (!result) {
+        EXPECT_EQ(result, Success);
+        if (result != Success) {
             return;
         }
 
         // Validate the output IR.
-        auto valid = ir::Validate(mod);
-        EXPECT_TRUE(valid) << valid.Failure().reason.str();
+        EXPECT_EQ(ir::Validate(mod, capabilities), Success);
     }
 
     /// @returns the transformed module as a disassembled string
-    std::string str() { return "\n" + ir::Disassemble(mod); }
+    std::string str() { return "\n" + ir::Disassemble(mod).Plain(); }
 
   protected:
     /// The test IR module.
@@ -71,6 +71,8 @@ class TransformTestBase : public BASE {
     ir::Builder b{mod};
     /// The type manager.
     core::type::Manager& ty{mod.Types()};
+    /// IR validation capabilities
+    Capabilities capabilities;
 };
 
 using TransformTest = TransformTestBase<testing::Test>;

@@ -52,7 +52,6 @@ class NoopCommandSerializer final : public CommandSerializer {
 
 Client::Client(CommandSerializer* serializer, MemoryTransferService* memoryTransferService)
     : ClientBase(), mSerializer(serializer), mMemoryTransferService(memoryTransferService) {
-    mEventManager = std::make_unique<EventManager>(this);
     if (mMemoryTransferService == nullptr) {
         // If a MemoryTransferService is not provided, fall back to inline memory.
         mOwnedMemoryTransferService = CreateInlineMemoryTransferService();
@@ -61,7 +60,11 @@ Client::Client(CommandSerializer* serializer, MemoryTransferService* memoryTrans
 }
 
 Client::~Client() {
-    mEventManager->ShutDown();
+    // Transition all event managers to ClientDropped state.
+    for (auto& [_, eventManager] : mEventManagers) {
+        eventManager->TransitionTo(EventManager::State::ClientDropped);
+    }
+
     DestroyAllObjects();
 }
 
@@ -96,15 +99,23 @@ void Client::DestroyAllObjects() {
     }
 }
 
+ReservedBuffer Client::ReserveBuffer(WGPUDevice device, const WGPUBufferDescriptor* descriptor) {
+    Buffer* buffer = Make<Buffer>(FromAPI(device)->GetEventManagerHandle(), descriptor);
+
+    ReservedBuffer result;
+    result.buffer = ToAPI(buffer);
+    result.handle = buffer->GetWireHandle();
+    result.deviceHandle = FromAPI(device)->GetWireHandle();
+    return result;
+}
+
 ReservedTexture Client::ReserveTexture(WGPUDevice device, const WGPUTextureDescriptor* descriptor) {
     Texture* texture = Make<Texture>(descriptor);
 
     ReservedTexture result;
     result.texture = ToAPI(texture);
-    result.id = texture->GetWireId();
-    result.generation = texture->GetWireGeneration();
-    result.deviceId = FromAPI(device)->GetWireId();
-    result.deviceGeneration = FromAPI(device)->GetWireGeneration();
+    result.handle = texture->GetWireHandle();
+    result.deviceHandle = FromAPI(device)->GetWireHandle();
     return result;
 }
 
@@ -114,31 +125,30 @@ ReservedSwapChain Client::ReserveSwapChain(WGPUDevice device,
 
     ReservedSwapChain result;
     result.swapchain = ToAPI(swapChain);
-    result.id = swapChain->GetWireId();
-    result.generation = swapChain->GetWireGeneration();
-    result.deviceId = FromAPI(device)->GetWireId();
-    result.deviceGeneration = FromAPI(device)->GetWireGeneration();
+    result.handle = swapChain->GetWireHandle();
+    result.deviceHandle = FromAPI(device)->GetWireHandle();
     return result;
 }
 
-ReservedDevice Client::ReserveDevice() {
-    Device* device = Make<Device>(nullptr);
-
-    ReservedDevice result;
-    result.device = ToAPI(device);
-    result.id = device->GetWireId();
-    result.generation = device->GetWireGeneration();
-    return result;
-}
-
-ReservedInstance Client::ReserveInstance() {
+ReservedInstance Client::ReserveInstance(const WGPUInstanceDescriptor* descriptor) {
     Instance* instance = Make<Instance>();
+
+    if (instance->Initialize(descriptor) != WireResult::Success) {
+        Free(instance);
+        return {nullptr, {0, 0}};
+    }
+
+    // Reserve an EventManager for the given instance and make the association in the map.
+    mEventManagers.emplace(instance->GetWireHandle(), std::make_unique<EventManager>());
 
     ReservedInstance result;
     result.instance = ToAPI(instance);
-    result.id = instance->GetWireId();
-    result.generation = instance->GetWireGeneration();
+    result.handle = instance->GetWireHandle();
     return result;
+}
+
+void Client::ReclaimBufferReservation(const ReservedBuffer& reservation) {
+    Free(FromAPI(reservation.buffer));
 }
 
 void Client::ReclaimTextureReservation(const ReservedTexture& reservation) {
@@ -157,20 +167,27 @@ void Client::ReclaimInstanceReservation(const ReservedInstance& reservation) {
     Free(FromAPI(reservation.instance));
 }
 
-EventManager* Client::GetEventManager() {
-    return mEventManager.get();
+EventManager& Client::GetEventManager(const ObjectHandle& instance) {
+    auto it = mEventManagers.find(instance);
+    DAWN_ASSERT(it != mEventManagers.end());
+    return *it->second;
 }
 
 void Client::Disconnect() {
     mDisconnected = true;
     mSerializer = ChunkedCommandSerializer(NoopCommandSerializer::GetInstance());
 
+    // Transition all event managers to ClientDropped state.
+    for (auto& [_, eventManager] : mEventManagers) {
+        eventManager->TransitionTo(EventManager::State::ClientDropped);
+    }
+
     auto& deviceList = mObjects[ObjectType::Device];
     {
         for (LinkNode<ObjectBase>* device = deviceList.head(); device != deviceList.end();
              device = device->next()) {
             static_cast<Device*>(device->value())
-                ->HandleDeviceLost(WGPUDeviceLostReason_Undefined, "GPU connection lost");
+                ->HandleDeviceLost(WGPUDeviceLostReason_Unknown, "GPU connection lost");
         }
     }
     for (auto& objectList : mObjects) {
@@ -179,7 +196,6 @@ void Client::Disconnect() {
             object->value()->CancelCallbacksForDisconnect();
         }
     }
-    mEventManager->ShutDown();
 }
 
 bool Client::IsDisconnected() const {

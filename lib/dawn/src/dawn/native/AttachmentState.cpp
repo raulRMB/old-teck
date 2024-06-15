@@ -30,7 +30,7 @@
 #include "dawn/common/BitSetIterator.h"
 #include "dawn/common/Enumerator.h"
 #include "dawn/common/ityp_span.h"
-#include "dawn/native/ChainUtils_autogen.h"
+#include "dawn/native/ChainUtils.h"
 #include "dawn/native/Device.h"
 #include "dawn/native/ObjectContentHasher.h"
 #include "dawn/native/PipelineLayout.h"
@@ -54,21 +54,16 @@ AttachmentState::AttachmentState(DeviceBase* device,
     mDepthStencilFormat = descriptor->depthStencilFormat;
 
     // TODO(dawn:1710): support MSAA render to single sampled in render bundles.
+    // TODO(dawn:1710): support LoadOp::ExpandResolveTexture in render bundles.
     // TODO(dawn:1704): support PLS in render bundles.
 
     SetContentHash(ComputeContentHash());
 }
 
 AttachmentState::AttachmentState(DeviceBase* device,
-                                 const RenderPipelineDescriptor* descriptor,
+                                 const UnpackedPtr<RenderPipelineDescriptor>& descriptor,
                                  const PipelineLayoutBase* layout)
     : ObjectBase(device), mSampleCount(descriptor->multisample.count) {
-    const DawnMultisampleStateRenderToSingleSampled* msaaRenderToSingleSampledDesc = nullptr;
-    FindInChain(descriptor->multisample.nextInChain, &msaaRenderToSingleSampledDesc);
-    if (msaaRenderToSingleSampledDesc != nullptr) {
-        mIsMSAARenderToSingleSampledEnabled = msaaRenderToSingleSampledDesc->enabled;
-    }
-
     if (descriptor->fragment != nullptr) {
         DAWN_ASSERT(descriptor->fragment->targetCount <= kMaxColorAttachments);
         auto targets = ityp::SpanFromUntyped<ColorAttachmentIndex>(
@@ -79,6 +74,12 @@ AttachmentState::AttachmentState(DeviceBase* device,
             if (format != wgpu::TextureFormat::Undefined) {
                 mColorAttachmentsSet.set(i);
                 mColorFormats[i] = format;
+
+                UnpackedPtr<ColorTargetState> unpackedTarget = Unpack(&target);
+                if (auto* expandResolveState =
+                        unpackedTarget.Get<ColorTargetStateExpandResolveTextureDawn>()) {
+                    mAttachmentsToExpandResolve.set(i, expandResolveState->enabled);
+                }
             }
         }
     }
@@ -92,7 +93,8 @@ AttachmentState::AttachmentState(DeviceBase* device,
     SetContentHash(ComputeContentHash());
 }
 
-AttachmentState::AttachmentState(DeviceBase* device, const RenderPassDescriptor* descriptor)
+AttachmentState::AttachmentState(DeviceBase* device,
+                                 const UnpackedPtr<RenderPassDescriptor>& descriptor)
     : ObjectBase(device) {
     auto colorAttachments = ityp::SpanFromUntyped<ColorAttachmentIndex>(
         descriptor->colorAttachments, descriptor->colorAttachmentCount);
@@ -104,14 +106,13 @@ AttachmentState::AttachmentState(DeviceBase* device, const RenderPassDescriptor*
         mColorAttachmentsSet.set(i);
         mColorFormats[i] = attachment->GetFormat().format;
 
-        const DawnRenderPassColorAttachmentRenderToSingleSampled* msaaRenderToSingleSampledDesc =
-            nullptr;
-        FindInChain(colorAttachment.nextInChain, &msaaRenderToSingleSampledDesc);
+        UnpackedPtr<RenderPassColorAttachment> unpackedColorAttachment = Unpack(&colorAttachment);
+        auto* msaaRenderToSingleSampledDesc =
+            unpackedColorAttachment.Get<DawnRenderPassColorAttachmentRenderToSingleSampled>();
         uint32_t attachmentSampleCount;
         if (msaaRenderToSingleSampledDesc != nullptr &&
             msaaRenderToSingleSampledDesc->implicitSampleCount > 1) {
             attachmentSampleCount = msaaRenderToSingleSampledDesc->implicitSampleCount;
-            mIsMSAARenderToSingleSampledEnabled = true;
         } else {
             attachmentSampleCount = attachment->GetTexture()->GetSampleCount();
         }
@@ -120,6 +121,10 @@ AttachmentState::AttachmentState(DeviceBase* device, const RenderPassDescriptor*
             mSampleCount = attachmentSampleCount;
         } else {
             DAWN_ASSERT(mSampleCount == attachmentSampleCount);
+        }
+
+        if (colorAttachment.loadOp == wgpu::LoadOp::ExpandResolveTexture) {
+            mAttachmentsToExpandResolve.set(i);
         }
     }
 
@@ -135,9 +140,7 @@ AttachmentState::AttachmentState(DeviceBase* device, const RenderPassDescriptor*
     }
 
     // Gather the PLS information.
-    const RenderPassPixelLocalStorage* pls = nullptr;
-    FindInChain(descriptor->nextInChain, &pls);
-    if (pls != nullptr) {
+    if (auto* pls = descriptor.Get<RenderPassPixelLocalStorage>()) {
         mHasPLS = true;
         mStorageAttachmentSlots = std::vector<wgpu::TextureFormat>(
             pls->totalPixelLocalStorageSize / kPLSSlotByteSize, wgpu::TextureFormat::Undefined);
@@ -164,7 +167,7 @@ AttachmentState::AttachmentState(const AttachmentState& blueprint)
     mColorFormats = blueprint.mColorFormats;
     mDepthStencilFormat = blueprint.mDepthStencilFormat;
     mSampleCount = blueprint.mSampleCount;
-    mIsMSAARenderToSingleSampledEnabled = blueprint.mIsMSAARenderToSingleSampledEnabled;
+    mAttachmentsToExpandResolve = blueprint.mAttachmentsToExpandResolve;
     mHasPLS = blueprint.mHasPLS;
     mStorageAttachmentSlots = blueprint.mStorageAttachmentSlots;
     SetContentHash(blueprint.GetContentHash());
@@ -200,7 +203,7 @@ bool AttachmentState::EqualityFunc::operator()(const AttachmentState* a,
     }
 
     // Both attachment state must either enable MSAA render to single sampled or disable it.
-    if (a->mIsMSAARenderToSingleSampledEnabled != b->mIsMSAARenderToSingleSampledEnabled) {
+    if (a->mAttachmentsToExpandResolve != b->mAttachmentsToExpandResolve) {
         return false;
     }
 
@@ -236,7 +239,7 @@ size_t AttachmentState::ComputeContentHash() {
     HashCombine(&hash, mSampleCount);
 
     // Hash MSAA render to single sampled flag
-    HashCombine(&hash, mIsMSAARenderToSingleSampledEnabled);
+    HashCombine(&hash, mAttachmentsToExpandResolve);
 
     // Hash the PLS state
     HashCombine(&hash, mHasPLS);
@@ -247,8 +250,7 @@ size_t AttachmentState::ComputeContentHash() {
     return hash;
 }
 
-ityp::bitset<ColorAttachmentIndex, kMaxColorAttachments> AttachmentState::GetColorAttachmentsMask()
-    const {
+ColorAttachmentMask AttachmentState::GetColorAttachmentsMask() const {
     return mColorAttachmentsSet;
 }
 
@@ -270,8 +272,8 @@ uint32_t AttachmentState::GetSampleCount() const {
     return mSampleCount;
 }
 
-bool AttachmentState::IsMSAARenderToSingleSampledEnabled() const {
-    return mIsMSAARenderToSingleSampledEnabled;
+ColorAttachmentMask AttachmentState::GetExpandResolveUsingAttachmentsMask() const {
+    return mAttachmentsToExpandResolve;
 }
 
 bool AttachmentState::HasPixelLocalStorage() const {
@@ -287,8 +289,8 @@ AttachmentState::ComputeStorageAttachmentPackingInColorAttachments() const {
     // TODO(dawn:1704): Consider caching this on AttachmentState creation, but does it become part
     // of the hashing and comparison operators? Fill with garbage data to more easily detect cases
     // where an incorrect slot is accessed.
-    std::vector<ColorAttachmentIndex> result(
-        mStorageAttachmentSlots.size(), ColorAttachmentIndex(uint8_t(kMaxColorAttachments + 1)));
+    std::vector<ColorAttachmentIndex> result(mStorageAttachmentSlots.size(),
+                                             ityp::PlusOne(kMaxColorAttachmentsTyped));
 
     // Iterate over the empty bits of mColorAttachmentsSet to pack storage attachment in them.
     auto availableSlots = ~mColorAttachmentsSet;

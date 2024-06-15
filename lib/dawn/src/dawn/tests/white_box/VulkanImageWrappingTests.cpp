@@ -36,6 +36,7 @@
 #include "dawn/tests/white_box/VulkanImageWrappingTests_OpaqueFD.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
 #include "dawn/utils/WGPUHelpers.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::vulkan {
 
@@ -118,8 +119,8 @@ class VulkanImageWrappingTestBase : public DawnTestWithParams<ImageWrappingParam
             return;
         }
 
-        testTextures = {};
         defaultTexture = nullptr;
+        testTextures = {};
         mBackend = nullptr;
         DawnTestWithParams::TearDown();
     }
@@ -186,7 +187,7 @@ class VulkanImageWrappingTestBase : public DawnTestWithParams<ImageWrappingParam
 
     wgpu::TextureDescriptor defaultDescriptor;
     std::array<std::unique_ptr<ExternalTexture>, kTestTexturesCount> testTextures;
-    ExternalTexture* defaultTexture;
+    raw_ptr<ExternalTexture> defaultTexture;
 };
 
 using VulkanImageWrappingValidationTests = VulkanImageWrappingTestBase;
@@ -319,12 +320,12 @@ class VulkanImageWrappingUsageTests : public VulkanImageWrappingTestBase {
     }
 
   protected:
-    native::AdapterBase* adapterBase;
+    raw_ptr<native::AdapterBase> adapterBase;
     native::DeviceDescriptor deviceDescriptor;
     native::DawnTogglesDescriptor deviceTogglesDesc;
 
     wgpu::Device secondDevice;
-    native::vulkan::Device* secondDeviceVk;
+    raw_ptr<native::vulkan::Device> secondDeviceVk;
 
     // Clear a texture on a given device
     void ClearImage(wgpu::Device dawnDevice, wgpu::Texture wrappedTexture, wgpu::Color clearColor) {
@@ -418,6 +419,9 @@ TEST_P(VulkanImageWrappingUsageTests, ClearImageAcrossDevices) {
 // This is intended to verify that waiting on the signalFd for one external texture does not affect
 // those of other external textures.
 TEST_P(VulkanImageWrappingUsageTests, ClearTwoImagesAcrossDevices) {
+    // TODO(crbug.com/341124484): Fails on Linux/Intel UHD 770.
+    DAWN_SUPPRESS_TEST_IF(IsLinux() && IsBackendValidationEnabled() && IsIntelGen12());
+
     static_assert(kTestTexturesCount >= 2);
 
     std::vector<wgpu::Texture> wrappedTextures;
@@ -976,6 +980,60 @@ TEST_P(VulkanImageWrappingUsageTests, SRGBReinterpretation) {
 
     IgnoreSignalSemaphore(texture);
 }
+class VulkanImageWrappingMultithreadTests : public VulkanImageWrappingUsageTests {
+  protected:
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        std::vector<wgpu::FeatureName> features;
+        // TODO(crbug.com/dawn/1678): DawnWire doesn't support thread safe API yet.
+        if (!UsesWire()) {
+            features.push_back(wgpu::FeatureName::ImplicitDeviceSynchronization);
+        }
+        return features;
+    }
+
+    void SetUp() override {
+        VulkanImageWrappingUsageTests::SetUp();
+        // TODO(crbug.com/dawn/1678): DawnWire doesn't support thread safe API yet.
+        DAWN_TEST_UNSUPPORTED_IF(UsesWire());
+    }
+};
+
+// Test that wrapping multiple VulkanImage and clear them on multiple threads work.
+TEST_P(VulkanImageWrappingMultithreadTests, WrapAndClear_OnMultipleThreads) {
+    // TODO(crbug.com/341124484): Crashes on Linux/Intel UHD 770.
+    DAWN_SUPPRESS_TEST_IF(IsLinux() && IsBackendValidationEnabled() && IsIntelGen12());
+
+    std::vector<std::unique_ptr<ExternalTexture>> testTextures(10);
+    for (auto& testTexture : testTextures) {
+        testTexture =
+            mBackend->CreateTexture(1, 1, defaultDescriptor.format, defaultDescriptor.usage);
+    }
+
+    wgpu::Device writeDevice = CreateDevice();
+
+    utils::RunInParallel(testTextures.size(), [&](uint32_t idx) {
+        // Import the image on |writeDevice|
+        wgpu::Texture wrappedTexture =
+            WrapVulkanImage(writeDevice, &defaultDescriptor, testTextures[idx].get(), {},
+                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        // Clear |wrappedTexture| on |writeDevice|
+        ClearImage(writeDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
+
+        ExternalImageExportInfoVkForTesting exportInfo = GetExternalImageExportInfo();
+        ASSERT_TRUE(mBackend->ExportImage(wrappedTexture, &exportInfo));
+
+        // Import the image to |device|, making sure we wait on signalFd
+        wgpu::Texture nextWrappedTexture = WrapVulkanImage(
+            device, &defaultDescriptor, testTextures[idx].get(), std::move(exportInfo.semaphores),
+            exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+
+        // Verify |device| sees the changes from |secondDevice|
+        EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);
+
+        IgnoreSignalSemaphore(nextWrappedTexture);
+    });
+}
 
 DAWN_INSTANTIATE_TEST_P(VulkanImageWrappingValidationTests,
                         {VulkanBackend()},
@@ -984,6 +1042,13 @@ DAWN_INSTANTIATE_TEST_P(VulkanImageWrappingValidationTests,
                         {true, false}   // DetectDedicatedAllocation
 );
 DAWN_INSTANTIATE_TEST_P(VulkanImageWrappingUsageTests,
+                        {VulkanBackend()},
+                        {ExternalImageType::OpaqueFD, ExternalImageType::DmaBuf},
+                        {true, false},  // UseDedicatedAllocation
+                        {true, false}   // DetectDedicatedAllocation
+);
+
+DAWN_INSTANTIATE_TEST_P(VulkanImageWrappingMultithreadTests,
                         {VulkanBackend()},
                         {ExternalImageType::OpaqueFD, ExternalImageType::DmaBuf},
                         {true, false},  // UseDedicatedAllocation

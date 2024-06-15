@@ -91,9 +91,9 @@ void EncodingContext::HandleError(std::unique_ptr<ErrorData> error) {
         error->AppendDebugGroup(*iter);
     }
 
-    if (!IsFinished()) {
-        // Encoding should only generate validation errors.
-        DAWN_ASSERT(error->GetType() == InternalErrorType::Validation);
+    if (!IsFinished() && !mDevice->IsImmediateErrorHandlingEnabled()) {
+        // TODO(crbug.com/42240579): ASSERT that encoding only generates validation errors.
+
         // If the encoding context is not finished, errors are deferred until
         // Finish() is called.
         if (mError == nullptr) {

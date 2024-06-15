@@ -34,6 +34,10 @@ TINT_INSTANTIATE_TYPEINFO(tint::core::ir::StoreVectorElement);
 
 namespace tint::core::ir {
 
+StoreVectorElement::StoreVectorElement() {
+    flags_.Add(Flag::kSequenced);
+}
+
 StoreVectorElement::StoreVectorElement(ir::Value* to, ir::Value* index, ir::Value* value) {
     flags_.Add(Flag::kSequenced);
 
@@ -48,7 +52,7 @@ StoreVectorElement* StoreVectorElement::Clone(CloneContext& ctx) {
     auto* to = ctx.Remap(To());
     auto* idx = ctx.Remap(Index());
     auto* val = ctx.Remap(Value());
-    return ctx.ir.instructions.Create<StoreVectorElement>(to, idx, val);
+    return ctx.ir.allocators.instructions.Create<StoreVectorElement>(to, idx, val);
 }
 
 }  // namespace tint::core::ir

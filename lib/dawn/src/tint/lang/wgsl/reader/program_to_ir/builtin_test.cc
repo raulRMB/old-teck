@@ -44,14 +44,14 @@ TEST_F(ProgramToIRBuiltinTest, EmitExpression_Builtin) {
     WrapInFunction(expr);
 
     auto m = Build();
-    ASSERT_TRUE(m) << m;
+    ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(Disassemble(m.Get()), R"(%b1 = block {  # root
+    EXPECT_EQ(Disassemble(m.Get()).Plain(), R"($B1: {  # root
   %i:ptr<private, f32, read_write> = var, 1.0f
 }
 
-%test_function = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%test_function = @compute @workgroup_size(1, 1, 1) func():void {
+  $B2: {
     %3:f32 = load %i
     %4:f32 = asin %3
     %tint_symbol:f32 = let %4

@@ -1,9 +1,14 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
+struct tint_module_vars_struct {
+  thread float2x2* P;
+};
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:270 internal compiler error: Switch() matched no cases. Type: tint::core::ir::FunctionParam
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+float2 func(thread float2* const pointer) {
+  return (*pointer);
+}
+kernel void tint_symbol() {
+  thread float2x2 P = float2x2(0.0f);
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.P=(&P)};
+  float2 const r = func((&(*tint_module_vars.P)[1]));
+}

@@ -30,6 +30,7 @@
 #include <benchmark/benchmark.h>
 #include <dawn/webgpu_cpp.h>
 #include <memory>
+#include <utility>
 
 #include "dawn/common/Assert.h"
 #include "dawn/common/Log.h"
@@ -48,7 +49,7 @@ void NullDeviceBenchmarkFixture::SetUp(const benchmark::State& state) {
     if (state.thread_index() == 0) {
         // Only thread 0 is responsible for initializing the device on each iteration.
         {
-            std::lock_guard lock(mMutex);
+            std::lock_guard<std::mutex> lock(mMutex);
 
             // Get an adapter to create the device with.
             wgpu::RequestAdapterOptions options = {};
@@ -59,33 +60,28 @@ void NullDeviceBenchmarkFixture::SetUp(const benchmark::State& state) {
 
             // Create the device.
             wgpu::DeviceDescriptor desc = GetDeviceDescriptor();
-            adapter.RequestDevice(
-                &desc,
-                [](WGPURequestDeviceStatus status, WGPUDevice cDevice, char const* message,
-                   void* userdata) {
-                    DAWN_ASSERT(status == WGPURequestDeviceStatus_Success);
-                    *reinterpret_cast<wgpu::Device*>(userdata) = wgpu::Device::Acquire(cDevice);
-                },
-                &device);
-            while (!device) {
-                wgpuInstanceProcessEvents(nativeInstance->Get());
-            }
-
-            device.SetUncapturedErrorCallback(
-                [](WGPUErrorType, char const* message, void* userdata) {
-                    dawn::ErrorLog() << message;
-                    DAWN_UNREACHABLE();
-                },
-                nullptr);
-
-            device.SetDeviceLostCallback(
-                [](WGPUDeviceLostReason reason, char const* message, void* userdata) {
-                    if (reason == WGPUDeviceLostReason_Undefined) {
+            desc.deviceLostCallbackInfo = {
+                nullptr, wgpu::CallbackMode::AllowSpontaneous,
+                [](WGPUDevice const*, WGPUDeviceLostReason reason, char const* message, void*) {
+                    if (reason == WGPUDeviceLostReason_Unknown) {
                         dawn::ErrorLog() << message;
                         DAWN_UNREACHABLE();
                     }
                 },
-                nullptr);
+                this};
+            desc.uncapturedErrorCallbackInfo = {nullptr,
+                                                [](WGPUErrorType, char const* message, void*) {
+                                                    dawn::ErrorLog() << message;
+                                                    DAWN_UNREACHABLE();
+                                                },
+                                                this};
+
+            adapter.RequestDevice(
+                &desc, wgpu::CallbackMode::AllowSpontaneous,
+                [this](wgpu::RequestDeviceStatus status, wgpu::Device result, const char*) {
+                    DAWN_ASSERT(status == wgpu::RequestDeviceStatus::Success);
+                    device = std::move(result);
+                });
         }
         mNumDoneThreads = 0;
         mCv.notify_all();
@@ -104,7 +100,7 @@ void NullDeviceBenchmarkFixture::TearDown(const benchmark::State& state) {
     } else {
         bool isDone = false;
         {
-            std::lock_guard lock(mMutex);
+            std::lock_guard<std::mutex> lock(mMutex);
             mNumDoneThreads += 1;
             isDone = mNumDoneThreads == state.threads() - 1;
         }

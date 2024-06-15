@@ -40,13 +40,11 @@ class Device;
 
 class RenderPipeline final : public RenderPipelineBase {
   public:
-    static Ref<RenderPipelineBase> CreateUninitialized(Device* device,
-                                                       const RenderPipelineDescriptor* descriptor);
-    static void InitializeAsync(Ref<RenderPipelineBase> renderPipeline,
-                                WGPUCreateRenderPipelineAsyncCallback callback,
-                                void* userdata);
+    static Ref<RenderPipelineBase> CreateUninitialized(
+        Device* device,
+        const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
 
-    RenderPipeline(DeviceBase* device, const RenderPipelineDescriptor* descriptor);
+    RenderPipeline(DeviceBase* device, const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
     ~RenderPipeline() override;
 
     MTLPrimitiveType GetMTLPrimitiveTopology() const;
@@ -63,19 +61,20 @@ class RenderPipeline final : public RenderPipelineBase {
 
     wgpu::ShaderStage GetStagesRequiringStorageBufferLength() const;
 
-    MaybeError Initialize() override;
+    MaybeError InitializeImpl() override;
 
   private:
     using RenderPipelineBase::RenderPipelineBase;
 
     NSRef<MTLVertexDescriptor> MakeVertexDesc() const;
+    NSRef<MTLDepthStencilDescriptor> MakeDepthStencilDesc();
 
     MTLPrimitiveType mMtlPrimitiveTopology;
     MTLWinding mMtlFrontFace;
     MTLCullMode mMtlCullMode;
     NSPRef<id<MTLRenderPipelineState>> mMtlRenderPipelineState;
     NSPRef<id<MTLDepthStencilState>> mMtlDepthStencilState;
-    ityp::array<VertexBufferSlot, uint32_t, kMaxVertexBuffers> mMtlVertexBufferIndices;
+    PerVertexBuffer<uint32_t> mMtlVertexBufferIndices;
 
     wgpu::ShaderStage mStagesRequiringStorageBufferLength = wgpu::ShaderStage::None;
 };

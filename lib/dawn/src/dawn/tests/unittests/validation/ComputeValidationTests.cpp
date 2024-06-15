@@ -56,7 +56,6 @@ TEST_F(ComputePipelineValidationTest, Success) {
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     device.CreateComputePipeline(&csDesc);
 }
 
@@ -77,7 +76,6 @@ TEST_F(ComputePipelineValidationTest, UnexpectedDawnComputePipelineFullSubgroups
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = false;
@@ -89,14 +87,8 @@ TEST_F(ComputePipelineValidationTest, UnexpectedDawnComputePipelineFullSubgroups
 class ComputePipelineValidationTestWithSubgroupFeaturesEnabled
     : public ComputePipelineValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        std::vector<wgpu::FeatureName> requiredFeatures = {
-            wgpu::FeatureName::ChromiumExperimentalSubgroups};
-        descriptor.requiredFeatures = requiredFeatures.data();
-        descriptor.requiredFeatureCount = requiredFeatures.size();
-
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::ChromiumExperimentalSubgroups};
     }
 
     // Helper function that create a shader module with compute entry point named main and
@@ -126,7 +118,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.layout = pl;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = false;
@@ -146,7 +137,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = true;
@@ -166,7 +156,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = true;
@@ -192,7 +181,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     csDesc.compute.constants = constants.data();
     csDesc.compute.constantCount = constants.size();
 
@@ -220,7 +208,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     csDesc.compute.constants = constants.data();
     csDesc.compute.constantCount = constants.size();
 
@@ -231,7 +218,7 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
     device.CreateComputePipeline(&csDesc);
 }
 
-// TODO(cwallez@chromium.org): Add a regression test for Disptach validation trying to acces the
+// TODO(cwallez@chromium.org): Add a regression test for Disptach validation trying to access the
 // input state.
 
 class ComputeDispatchValidationTest : public ValidationTest {
@@ -249,7 +236,6 @@ class ComputeDispatchValidationTest : public ValidationTest {
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.layout = pl;
         csDesc.compute.module = computeModule;
-        csDesc.compute.entryPoint = "main";
         pipeline = device.CreateComputePipeline(&csDesc);
     }
 

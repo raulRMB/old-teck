@@ -35,27 +35,28 @@
 #include "dawn/common/CoreFoundationRef.h"
 #include "dawn/common/IOSurfaceUtils.h"
 #include "dawn/native/MetalBackend.h"
+#include "dawn/utils/TextureUtils.h"
 
 namespace dawn {
 namespace {
 
 class PlatformTextureIOSurface : public VideoViewsTestBackend::PlatformTexture {
   public:
-    PlatformTextureIOSurface(wgpu::Texture&& texture, IOSurfaceRef iosurface)
-        : PlatformTexture(std::move(texture)) {
-        mIOSurface = AcquireCFRef<IOSurfaceRef>(iosurface);
-    }
-    ~PlatformTextureIOSurface() override { mIOSurface = nullptr; }
+    PlatformTextureIOSurface(wgpu::Texture&& texture,
+                             wgpu::SharedTextureMemory&& sharedTextureMemory)
+        : PlatformTexture(std::move(texture)),
+          mSharedTextureMemory(std::move(sharedTextureMemory)) {}
+    ~PlatformTextureIOSurface() override {}
 
     bool CanWrapAsWGPUTexture() override { return true; }
 
-  private:
-    CFRef<IOSurfaceRef> mIOSurface = nullptr;
+  public:
+    wgpu::SharedTextureMemory mSharedTextureMemory;
 };
 
 class VideoViewsTestBackendIOSurface : public VideoViewsTestBackend {
   public:
-    void OnSetUp(WGPUDevice device) override { mWGPUDevice = device; }
+    void OnSetUp(const wgpu::Device& device) override { mWGPUDevice = device; }
 
   private:
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> CreateVideoTextureForTest(
@@ -68,25 +69,25 @@ class VideoViewsTestBackendIOSurface : public VideoViewsTestBackend {
                                        VideoViewsTestsBase::kYUVAImageDataHeightInTexels);
 
         if (initialized) {
-            const size_t numPlanes = VideoViewsTestsBase::NumPlanes(format);
+            const size_t numPlanes = utils::GetMultiPlaneTextureNumPlanes(format);
 
             IOSurfaceLock(surface, 0, nullptr);
 
             for (size_t plane = 0; plane < numPlanes; ++plane) {
                 void* pointer = IOSurfaceGetBaseAddressOfPlane(surface, plane);
-                if (format == wgpu::TextureFormat::R10X6BG10X6Biplanar420Unorm) {
+                if (utils::GetMultiPlaneTextureBitDepth(format) == 16) {
                     std::vector<uint16_t> data =
                         VideoViewsTestsBase::GetTestTextureDataWithPlaneIndex<uint16_t>(
-                            plane, IOSurfaceGetBytesPerRowOfPlane(surface, plane),
+                            format, plane, IOSurfaceGetBytesPerRowOfPlane(surface, plane),
                             IOSurfaceGetHeightOfPlane(surface, plane), isCheckerboard,
-                            /*hasAlpha*/ false);
+                            /*hasAlpha=*/false);
                     memcpy(pointer, data.data(), data.size() * 2);
                 } else {
                     std::vector<uint8_t> data =
                         VideoViewsTestsBase::GetTestTextureDataWithPlaneIndex<uint8_t>(
-                            plane, IOSurfaceGetBytesPerRowOfPlane(surface, plane),
+                            format, plane, IOSurfaceGetBytesPerRowOfPlane(surface, plane),
                             IOSurfaceGetHeightOfPlane(surface, plane), isCheckerboard,
-                            /*hasAlpha*/ format == wgpu::TextureFormat::R8BG8A8Triplanar420Unorm);
+                            /*hasAlpha=*/format == wgpu::TextureFormat::R8BG8A8Triplanar420Unorm);
                     memcpy(pointer, data.data(), data.size());
                 }
             }
@@ -104,21 +105,32 @@ class VideoViewsTestBackendIOSurface : public VideoViewsTestBackend {
         internalDesc.internalUsage = wgpu::TextureUsage::CopySrc;
         textureDesc.nextInChain = &internalDesc;
 
-        native::metal::ExternalImageDescriptorIOSurface descriptor = {};
-        descriptor.cTextureDescriptor =
-            reinterpret_cast<const WGPUTextureDescriptor*>(&textureDesc);
-        descriptor.isInitialized = initialized;
-        descriptor.ioSurface = surface;
+        wgpu::SharedTextureMemoryIOSurfaceDescriptor ioSurfaceDesc;
+        ioSurfaceDesc.ioSurface = surface;
+        wgpu::SharedTextureMemoryDescriptor desc;
+        desc.nextInChain = &ioSurfaceDesc;
 
-        return std::make_unique<PlatformTextureIOSurface>(
-            wgpu::Texture::Acquire(native::metal::WrapIOSurface(mWGPUDevice, &descriptor)),
-            surface);
+        auto sharedTextureMemory = mWGPUDevice.ImportSharedTextureMemory(&desc);
+
+        auto texture = sharedTextureMemory.CreateTexture(&textureDesc);
+
+        // Invoke BeginAccess() on the texture to ensure that it can be used by
+        // the test. We will end the access when the texture is destroyed
+        // (below).
+        wgpu::SharedTextureMemoryBeginAccessDescriptor beginAccessDesc;
+        beginAccessDesc.initialized = initialized;
+        beginAccessDesc.fenceCount = 0;
+        bool success = sharedTextureMemory.BeginAccess(texture, &beginAccessDesc);
+
+        return success ? std::make_unique<PlatformTextureIOSurface>(std::move(texture),
+                                                                    std::move(sharedTextureMemory))
+                       : nullptr;
     }
 
     void DestroyVideoTextureForTest(
         std::unique_ptr<VideoViewsTestBackend::PlatformTexture>&& platformTexture) override {}
 
-    WGPUDevice mWGPUDevice = nullptr;
+    wgpu::Device mWGPUDevice = nullptr;
 };
 
 }  // anonymous namespace
@@ -131,7 +143,11 @@ std::vector<BackendTestConfig> VideoViewsTestBackend::Backends() {
 // static
 std::vector<Format> VideoViewsTestBackend::Formats() {
     return {wgpu::TextureFormat::R8BG8Biplanar420Unorm,
+            wgpu::TextureFormat::R8BG8Biplanar422Unorm,
+            wgpu::TextureFormat::R8BG8Biplanar444Unorm,
             wgpu::TextureFormat::R10X6BG10X6Biplanar420Unorm,
+            wgpu::TextureFormat::R10X6BG10X6Biplanar422Unorm,
+            wgpu::TextureFormat::R10X6BG10X6Biplanar444Unorm,
             wgpu::TextureFormat::R8BG8A8Triplanar420Unorm};
 }
 

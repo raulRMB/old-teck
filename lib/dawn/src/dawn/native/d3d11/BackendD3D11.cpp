@@ -41,15 +41,10 @@
 namespace dawn::native::d3d11 {
 namespace {
 
-MaybeError ValidateRequestOptions(const RequestAdapterOptions* options,
+MaybeError ValidateRequestOptions(const UnpackedPtr<RequestAdapterOptions>& options,
                                   ComPtr<IDXGIAdapter>* dxgiAdapter,
                                   ComPtr<ID3D11Device>* d3d11Device) {
-    const d3d::RequestAdapterOptionsLUID* luidOptions = nullptr;
-    FindInChain(options->nextInChain, &luidOptions);
-
-    const d3d11::RequestAdapterOptionsD3D11Device* d3d11DeviceOption = nullptr;
-    FindInChain(options->nextInChain, &d3d11DeviceOption);
-
+    auto* d3d11DeviceOption = options.Get<RequestAdapterOptionsD3D11Device>();
     if (!d3d11DeviceOption) {
         return {};
     }
@@ -73,9 +68,11 @@ MaybeError ValidateRequestOptions(const RequestAdapterOptions* options,
     DXGI_ADAPTER_DESC adapterDesc;
     DAWN_TRY(CheckHRESULT(adapter->GetDesc(&adapterDesc), "D3D11: IDXGIAdapter::GetDesc()"));
 
-    DAWN_INVALID_IF(luidOptions && memcmp(&adapterDesc.AdapterLuid, &luidOptions->adapterLUID,
-                                          sizeof(LUID)) != 0,
-                    "RequestAdapterOptionsLUID and RequestAdapterOptionsD3D11Device don't match.");
+    if (auto* luidOptions = options.Get<d3d::RequestAdapterOptionsLUID>()) {
+        DAWN_INVALID_IF(
+            memcmp(&adapterDesc.AdapterLuid, &luidOptions->adapterLUID, sizeof(LUID)) != 0,
+            "RequestAdapterOptionsLUID and RequestAdapterOptionsD3D11Device don't match.");
+    }
 
     *dxgiAdapter = std::move(adapter);
     *d3d11Device = d3d11DeviceOption->device;
@@ -101,7 +98,7 @@ const PlatformFunctions* Backend::GetFunctions() const {
 }
 
 std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
-    const RequestAdapterOptions* options) {
+    const UnpackedPtr<RequestAdapterOptions>& options) {
     if (options->forceFallbackAdapter) {
         return {};
     }
@@ -137,11 +134,12 @@ ResultOrError<Ref<PhysicalDeviceBase>> Backend::CreatePhysicalDeviceFromIDXGIAda
 ResultOrError<Ref<PhysicalDeviceBase>> Backend::CreatePhysicalDevice(
     ComPtr<IDXGIAdapter> dxgiAdapter,
     ComPtr<ID3D11Device> d3d11Device) {
-    ComPtr<IDXGIAdapter3> dxgiAdapter3;
-    DAWN_TRY(CheckHRESULT(dxgiAdapter.As(&dxgiAdapter3), "DXGIAdapter retrieval"));
+    // IDXGIAdapter4 is supported since Windows 8 and Platform Update for Windows 7.
+    ComPtr<IDXGIAdapter4> dxgiAdapter4;
+    DAWN_TRY(CheckHRESULT(dxgiAdapter.As(&dxgiAdapter4), "DXGIAdapter retrieval"));
 
     Ref<PhysicalDevice> physicalDevice =
-        AcquireRef(new PhysicalDevice(this, std::move(dxgiAdapter3), std::move(d3d11Device)));
+        AcquireRef(new PhysicalDevice(this, std::move(dxgiAdapter4), std::move(d3d11Device)));
     DAWN_TRY(physicalDevice->Initialize());
 
     return {std::move(physicalDevice)};

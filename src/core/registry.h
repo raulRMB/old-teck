@@ -6,6 +6,9 @@
 class tkRegistry
 {
 	entt::registry EnttRegistry;
+
+public:
+	static entt::registry& Get();
 };
 
 #endif//TK_REGISTRY_H

@@ -143,7 +143,12 @@ TEST(ErrorTests, TRY_AddsToBacktrace) {
     std::unique_ptr<ErrorData> singleData = singleResult.AcquireError();
     std::unique_ptr<ErrorData> doubleData = doubleResult.AcquireError();
 
+    // Backtraces are only added in debug mode.
+#if defined(DAWN_ENABLE_ASSERTS)
     ASSERT_EQ(singleData->GetBacktrace().size() + 1, doubleData->GetBacktrace().size());
+#else
+    ASSERT_EQ(singleData->GetBacktrace().size(), doubleData->GetBacktrace().size());
+#endif
 }
 
 // Check DAWN_TRY_ASSIGN handles successes correctly.
@@ -175,9 +180,8 @@ TEST(ErrorTests, TRY_RESULT_Error) {
     };
 
     auto Try = [ReturnError]() -> ResultOrError<int*> {
-        int* result = nullptr;
+        [[maybe_unused]] int* result = nullptr;
         DAWN_TRY_ASSIGN(result, ReturnError());
-        DAWN_UNUSED(result);
 
         // DAWN_TRY should return before this point
         EXPECT_FALSE(true);
@@ -216,7 +220,12 @@ TEST(ErrorTests, TRY_RESULT_AddsToBacktrace) {
     std::unique_ptr<ErrorData> singleData = singleResult.AcquireError();
     std::unique_ptr<ErrorData> doubleData = doubleResult.AcquireError();
 
+    // Backtraces are only added in debug mode.
+#if defined(DAWN_ENABLE_ASSERTS)
     ASSERT_EQ(singleData->GetBacktrace().size() + 1, doubleData->GetBacktrace().size());
+#else
+    ASSERT_EQ(singleData->GetBacktrace().size(), doubleData->GetBacktrace().size());
+#endif
 }
 
 // Check a ResultOrError can be DAWN_TRY_ASSIGNED in a function that returns an Error
@@ -226,9 +235,8 @@ TEST(ErrorTests, TRY_RESULT_ConversionToError) {
     };
 
     auto Try = [ReturnError]() -> MaybeError {
-        int* result = nullptr;
+        [[maybe_unused]] int* result = nullptr;
         DAWN_TRY_ASSIGN(result, ReturnError());
-        DAWN_UNUSED(result);
 
         return {};
     };
@@ -248,9 +256,8 @@ TEST(ErrorTests, TRY_RESULT_ConversionToErrorNonPointer) {
     };
 
     auto Try = [ReturnError]() -> MaybeError {
-        int result = 0;
+        [[maybe_unused]] int result = 0;
         DAWN_TRY_ASSIGN(result, ReturnError());
-        DAWN_UNUSED(result);
 
         return {};
     };
@@ -297,9 +304,8 @@ TEST(ErrorTests, TRY_RESULT_CLEANUP_Cleanup) {
     bool tryCleanup = false;
 
     auto Try = [ReturnError, &tryCleanup]() -> ResultOrError<int*> {
-        int* result = nullptr;
+        [[maybe_unused]] int* result = nullptr;
         DAWN_TRY_ASSIGN_WITH_CLEANUP(result, ReturnError(), { tryCleanup = true; });
-        DAWN_UNUSED(result);
 
         // DAWN_TRY_ASSIGN_WITH_CLEANUP should return before this point
         EXPECT_FALSE(true);
@@ -321,9 +327,8 @@ TEST(ErrorTests, TRY_RESULT_CLEANUP_OverrideReturn) {
     };
 
     auto Try = [ReturnError]() -> bool {
-        int* result = nullptr;
+        [[maybe_unused]] int* result = nullptr;
         DAWN_TRY_ASSIGN_WITH_CLEANUP(result, ReturnError(), {}, true);
-        DAWN_UNUSED(result);
 
         // DAWN_TRY_ASSIGN_WITH_CLEANUP should return before this point
         EXPECT_FALSE(true);

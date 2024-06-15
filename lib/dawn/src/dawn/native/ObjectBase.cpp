@@ -25,6 +25,7 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -51,7 +52,7 @@ ObjectBase::ObjectBase(DeviceBase* device) : ErrorMonad(), mDevice(device) {}
 ObjectBase::ObjectBase(DeviceBase* device, ErrorTag) : ErrorMonad(kError), mDevice(device) {}
 
 InstanceBase* ObjectBase::GetInstance() const {
-    return mDevice->GetAdapter()->GetPhysicalDevice()->GetInstance();
+    return mDevice->GetAdapter()->GetInstance();
 }
 
 DeviceBase* ObjectBase::GetDevice() const {
@@ -59,27 +60,23 @@ DeviceBase* ObjectBase::GetDevice() const {
 }
 
 void ApiObjectList::Track(ApiObjectBase* object) {
-    if (mMarkedDestroyed) {
+    if (mMarkedDestroyed.load(std::memory_order_acquire)) {
         object->DestroyImpl();
         return;
     }
-    std::lock_guard<std::mutex> lock(mMutex);
-    mObjects.Prepend(object);
+    mObjects.Use([&object](auto lockedObjects) { lockedObjects->Prepend(object); });
 }
 
 bool ApiObjectList::Untrack(ApiObjectBase* object) {
-    std::lock_guard<std::mutex> lock(mMutex);
-    return object->RemoveFromList();
+    return mObjects.Use([&object](auto lockedObjects) { return object->RemoveFromList(); });
 }
 
 void ApiObjectList::Destroy() {
     LinkedList<ApiObjectBase> objects;
-    {
-        std::lock_guard<std::mutex> lock(mMutex);
-        mMarkedDestroyed = true;
-        mObjects.MoveInto(&objects);
-    }
-
+    mObjects.Use([&objects, this](auto lockedObjects) {
+        mMarkedDestroyed.store(true, std::memory_order_release);
+        lockedObjects->MoveInto(&objects);
+    });
     while (!objects.empty()) {
         auto* head = objects.head();
         bool removed = head->RemoveFromList();
@@ -124,6 +121,8 @@ void ApiObjectBase::FormatLabel(absl::FormatSink* s) const {
     s->Append(ObjectTypeAsString(GetType()));
     if (!mLabel.empty()) {
         s->Append(absl::StrFormat(" \"%s\"", mLabel));
+    } else {
+        s->Append(" (unlabeled)");
     }
 }
 

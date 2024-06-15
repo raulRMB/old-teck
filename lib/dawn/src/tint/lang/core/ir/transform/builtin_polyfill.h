@@ -30,6 +30,7 @@
 
 #include <string>
 
+#include "src/tint/utils/reflection/reflection.h"
 #include "src/tint/utils/result/result.h"
 
 // Forward declarations.
@@ -69,6 +70,29 @@ struct BuiltinPolyfillConfig {
     bool saturate = false;
     /// Should `textureSampleBaseClampToEdge()` be polyfilled for texture_2d<f32> textures?
     bool texture_sample_base_clamp_to_edge_2d_f32 = false;
+    /// Should `dot4U8Packed()` and `dot4I8Packed()` be polyfilled?
+    bool dot_4x8_packed = false;
+    /// Should `pack4xI8()`, `pack4xU8()`, `pack4xI8Clamp()`, `unpack4xI8()` and `unpack4xU8()`
+    /// be polyfilled?
+    bool pack_unpack_4x8 = false;
+    /// Should `pack4xU8Clamp()` be polyfilled?
+    /// TODO(tint:1497): remove the option once the bug in DXC is fixed.
+    bool pack_4xu8_clamp = false;
+
+    /// Reflection for this class
+    TINT_REFLECT(BuiltinPolyfillConfig,
+                 clamp_int,
+                 count_leading_zeros,
+                 count_trailing_zeros,
+                 extract_bits,
+                 first_leading_bit,
+                 first_trailing_bit,
+                 insert_bits,
+                 saturate,
+                 texture_sample_base_clamp_to_edge_2d_f32,
+                 dot_4x8_packed,
+                 pack_unpack_4x8,
+                 pack_4xu8_clamp);
 };
 
 /// BuiltinPolyfill is a transform that replaces calls to builtin functions and uses of other core
@@ -79,5 +103,12 @@ struct BuiltinPolyfillConfig {
 Result<SuccessType> BuiltinPolyfill(Module& module, const BuiltinPolyfillConfig& config);
 
 }  // namespace tint::core::ir::transform
+
+namespace tint {
+
+/// Reflection for BuiltinPolyfillLevel
+TINT_REFLECT_ENUM_RANGE(tint::core::ir::transform::BuiltinPolyfillLevel, kNone, kFull);
+
+}  // namespace tint
 
 #endif  // SRC_TINT_LANG_CORE_IR_TRANSFORM_BUILTIN_POLYFILL_H_

@@ -31,6 +31,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "dawn/common/LinkedList.h"
 #include "dawn/common/NonCopyable.h"
 #include "dawn/webgpu.h"
@@ -42,6 +43,7 @@
 #include "dawn/wire/client/ClientBase_autogen.h"
 #include "dawn/wire/client/EventManager.h"
 #include "dawn/wire/client/ObjectStore.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::wire::client {
 
@@ -69,10 +71,6 @@ class Client : public ClientBase {
         return object;
     }
 
-    template <typename T>
-    void Free(T* obj) {
-        Free(obj, ObjectTypeToTypeEnum<T>);
-    }
     void Free(ObjectBase* obj, ObjectType type);
 
     template <typename T>
@@ -85,12 +83,13 @@ class Client : public ClientBase {
 
     MemoryTransferService* GetMemoryTransferService() const { return mMemoryTransferService; }
 
+    ReservedBuffer ReserveBuffer(WGPUDevice device, const WGPUBufferDescriptor* descriptor);
     ReservedTexture ReserveTexture(WGPUDevice device, const WGPUTextureDescriptor* descriptor);
     ReservedSwapChain ReserveSwapChain(WGPUDevice device,
                                        const WGPUSwapChainDescriptor* descriptor);
-    ReservedDevice ReserveDevice();
-    ReservedInstance ReserveInstance();
+    ReservedInstance ReserveInstance(const WGPUInstanceDescriptor* descriptor);
 
+    void ReclaimBufferReservation(const ReservedBuffer& reservation);
     void ReclaimTextureReservation(const ReservedTexture& reservation);
     void ReclaimSwapChainReservation(const ReservedSwapChain& reservation);
     void ReclaimDeviceReservation(const ReservedDevice& reservation);
@@ -106,7 +105,7 @@ class Client : public ClientBase {
         mSerializer.SerializeCommand(cmd, *this, std::forward<Extensions>(es)...);
     }
 
-    EventManager* GetEventManager();
+    EventManager& GetEventManager(const ObjectHandle& instance);
 
     void Disconnect();
     bool IsDisconnected() const;
@@ -114,16 +113,27 @@ class Client : public ClientBase {
   private:
     void DestroyAllObjects();
 
+    template <typename T>
+    void Free(T* obj) {
+        Free(obj, ObjectTypeToTypeEnum<T>);
+    }
+
 #include "dawn/wire/client/ClientPrototypes_autogen.inc"
 
     ChunkedCommandSerializer mSerializer;
     WireDeserializeAllocator mWireCommandAllocator;
     PerObjectType<ObjectStore> mObjectStores;
-    MemoryTransferService* mMemoryTransferService = nullptr;
     std::unique_ptr<MemoryTransferService> mOwnedMemoryTransferService = nullptr;
+    raw_ptr<MemoryTransferService> mMemoryTransferService = nullptr;
     PerObjectType<LinkedList<ObjectBase>> mObjects;
-    // TODO(crbug.com/dawn/2061) Eventually we want an EventManager per instance not per client.
-    std::unique_ptr<EventManager> mEventManager = nullptr;
+    // Map of instance object handles to a corresponding event manager. Note that for now because we
+    // do not have an internal refcount on the instances, i.e. we don't know when the last object
+    // associated with a particular instance is destroyed, this map is not cleaned up until the
+    // client is destroyed. This should only be a problem for users that are creating many
+    // instances. We also cannot currently store the EventManger on the Instance because
+    // spontaneous mode callbacks outlive the instance. We also can't reuse the ObjectStore for the
+    // EventManagers because we need to track old instance handles even after they are reclaimed.
+    absl::flat_hash_map<ObjectHandle, std::unique_ptr<EventManager>> mEventManagers;
     bool mDisconnected = false;
 };
 

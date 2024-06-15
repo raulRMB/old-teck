@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#include "dawn/common/NonCopyable.h"
+#include "dawn/common/NonMovable.h"
 #include "dawn/tests/unittests/validation/ValidationTest.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
 #include "dawn/utils/WGPUHelpers.h"
@@ -117,14 +117,10 @@ TEST_F(PixelLocalStorageDisabledTest, PixelLocalStorageBarrierDisallowed) {
 
 class PixelLocalStorageOtherExtensionTest : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
         // Only test the coherent extension. The non-coherent one has the rest of the validation
         // tests.
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::PixelLocalStorageCoherent};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+        return {wgpu::FeatureName::PixelLocalStorageCoherent};
     }
 };
 
@@ -198,14 +194,10 @@ struct ComboTestPLSRenderPassDescriptor : NonMovable {
 
 class PixelLocalStorageTest : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
         // Test only the non-coherent version, and assume that the same validation code paths are
         // taken for the coherent path.
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::PixelLocalStorageNonCoherent};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+        return {wgpu::FeatureName::PixelLocalStorageNonCoherent};
     }
 
     void InitializePLSRenderPass(ComboTestPLSRenderPassDescriptor* desc) {
@@ -349,13 +341,11 @@ class PixelLocalStorageTest : public ValidationTest {
         utils::ComboRenderPipelineDescriptor desc;
         desc.layout = MakePipelineLayout(spec);
         desc.cFragment.module = utils::CreateShaderModule(device, fsStream.str().c_str());
-        desc.cFragment.entryPoint = "fs";
         desc.vertex.module = utils::CreateShaderModule(device, R"(
             @vertex fn vs() -> @builtin(position) vec4f {
                 return vec4f();
             }
         )");
-        desc.vertex.entryPoint = "vs";
         desc.cTargets[0].format = kColorAttachmentFormat;
         return device.CreateRenderPipeline(&desc);
     }
@@ -389,9 +379,7 @@ class PixelLocalStorageTest : public ValidationTest {
         utils::ComboRenderPipelineDescriptor desc;
         desc.layout = layout;
         desc.cFragment.module = fsModule;
-        desc.cFragment.entryPoint = "fs";
         desc.vertex.module = vsModule;
-        desc.vertex.entryPoint = "vs";
         desc.cTargets[0].format = kColorAttachmentFormat;
         desc.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
 
@@ -1118,9 +1106,7 @@ TEST_F(PixelLocalStorageTest, RenderPipelineOnlyStorageAttachment) {
     utils::ComboRenderPipelineDescriptor pDesc;
     pDesc.layout = pl;
     pDesc.vertex.module = module;
-    pDesc.vertex.entryPoint = "vs";
     pDesc.cFragment.module = module;
-    pDesc.cFragment.entryPoint = "fs";
     pDesc.cFragment.targetCount = 0;
 
     // Success case: a render pipeline with just a storage attachment is valid.
@@ -1187,13 +1173,9 @@ TEST_F(PixelLocalStorageTest, RenderPassSizeDetectionWithOnlyStorageAttachment) 
 
 class PixelLocalStorageAndRenderToSingleSampledTest : public PixelLocalStorageTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[2] = {wgpu::FeatureName::PixelLocalStorageNonCoherent,
-                                                 wgpu::FeatureName::MSAARenderToSingleSampled};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 2;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::PixelLocalStorageNonCoherent,
+                wgpu::FeatureName::MSAARenderToSingleSampled};
     }
 };
 
@@ -1213,13 +1195,9 @@ TEST_F(PixelLocalStorageAndRenderToSingleSampledTest, CombinationIsNotAllowed) {
 }
 
 class PixelLocalStorageAndTransientAttachmentTest : public PixelLocalStorageTest {
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[2] = {wgpu::FeatureName::PixelLocalStorageNonCoherent,
-                                                 wgpu::FeatureName::TransientAttachments};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 2;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::PixelLocalStorageNonCoherent,
+                wgpu::FeatureName::TransientAttachments};
     }
 };
 

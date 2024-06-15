@@ -29,6 +29,7 @@
 #define SRC_DAWN_NATIVE_D3D12_COMPUTEPIPELINED3D12_H_
 
 #include "dawn/native/ComputePipeline.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 
 #include "dawn/native/d3d12/d3d12_platform.h"
 
@@ -38,16 +39,14 @@ class Device;
 
 class ComputePipeline final : public ComputePipelineBase {
   public:
-    static Ref<ComputePipeline> CreateUninitialized(Device* device,
-                                                    const ComputePipelineDescriptor* descriptor);
-    static void InitializeAsync(Ref<ComputePipelineBase> computePipeline,
-                                WGPUCreateComputePipelineAsyncCallback callback,
-                                void* userdata);
+    static Ref<ComputePipeline> CreateUninitialized(
+        Device* device,
+        const UnpackedPtr<ComputePipelineDescriptor>& descriptor);
     ComputePipeline() = delete;
 
     ID3D12PipelineState* GetPipelineState() const;
 
-    MaybeError Initialize() override;
+    MaybeError InitializeImpl() override;
 
     // Dawn API
     void SetLabelImpl() override;

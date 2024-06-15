@@ -34,9 +34,9 @@
 
 #include "dawn/native/Texture.h"
 
+#include "absl/container/inlined_vector.h"
 #include "dawn/common/CoreFoundationRef.h"
 #include "dawn/common/NSRef.h"
-#include "dawn/common/StackContainer.h"
 #include "dawn/native/DawnNative.h"
 #include "dawn/native/MetalBackend.h"
 
@@ -48,26 +48,19 @@ struct MTLSharedEventAndSignalValue;
 class SharedTextureMemory;
 
 MTLPixelFormat MetalPixelFormat(const DeviceBase* device, wgpu::TextureFormat format);
-MaybeError ValidateIOSurfaceCanBeWrapped(const DeviceBase* device,
-                                         const TextureDescriptor* descriptor,
-                                         IOSurfaceRef ioSurface);
 
 class Texture final : public TextureBase {
   public:
-    static ResultOrError<Ref<Texture>> Create(Device* device, const TextureDescriptor* descriptor);
-    static ResultOrError<Ref<Texture>> CreateFromIOSurface(
-        Device* device,
-        const ExternalImageDescriptor* descriptor,
-        IOSurfaceRef ioSurface,
-        std::vector<MTLSharedEventAndSignalValue> waitEvents);
+    static ResultOrError<Ref<Texture>> Create(Device* device,
+                                              const UnpackedPtr<TextureDescriptor>& descriptor);
     static ResultOrError<Ref<Texture>> CreateFromSharedTextureMemory(
         SharedTextureMemory* memory,
-        const TextureDescriptor* descriptor);
+        const UnpackedPtr<TextureDescriptor>& descriptor);
     static Ref<Texture> CreateWrapping(Device* device,
-                                       const TextureDescriptor* descriptor,
+                                       const UnpackedPtr<TextureDescriptor>& descriptor,
                                        NSPRef<id<MTLTexture>> wrapped);
 
-    Texture(DeviceBase* device, const TextureDescriptor* descriptor);
+    Texture(DeviceBase* device, const UnpackedPtr<TextureDescriptor>& descriptor);
 
     id<MTLTexture> GetMTLTexture(Aspect aspect) const;
     IOSurfaceRef GetIOSurface();
@@ -80,7 +73,6 @@ class Texture final : public TextureBase {
                                                    const SubresourceRange& range);
 
     void SynchronizeTextureBeforeUse(CommandRecordingContext* commandContext);
-    void IOSurfaceEndAccess(ExternalImageIOSurfaceEndAccessDescriptor* descriptor);
 
   private:
     using TextureBase::TextureBase;
@@ -88,12 +80,12 @@ class Texture final : public TextureBase {
 
     NSRef<MTLTextureDescriptor> CreateMetalTextureDescriptor() const;
 
-    MaybeError InitializeAsInternalTexture(const TextureDescriptor* descriptor);
-    MaybeError InitializeFromIOSurface(const ExternalImageDescriptor* descriptor,
-                                       const TextureDescriptor* textureDescriptor,
-                                       IOSurfaceRef ioSurface,
-                                       std::vector<MTLSharedEventAndSignalValue> waitEvents);
-    void InitializeAsWrapping(const TextureDescriptor* descriptor, NSPRef<id<MTLTexture>> wrapped);
+    MaybeError InitializeAsInternalTexture(const UnpackedPtr<TextureDescriptor>& descriptor);
+    MaybeError InitializeFromSharedTextureMemory(
+        SharedTextureMemory* memory,
+        const UnpackedPtr<TextureDescriptor>& textureDescriptor);
+    void InitializeAsWrapping(const UnpackedPtr<TextureDescriptor>& descriptor,
+                              NSPRef<id<MTLTexture>> wrapped);
 
     void DestroyImpl() override;
     void SetLabelImpl() override;
@@ -102,7 +94,7 @@ class Texture final : public TextureBase {
                             const SubresourceRange& range,
                             TextureBase::ClearValue clearValue);
 
-    StackVector<NSPRef<id<MTLTexture>>, kMaxPlanesPerFormat> mMtlPlaneTextures;
+    absl::InlinedVector<NSPRef<id<MTLTexture>>, kMaxPlanesPerFormat> mMtlPlaneTextures;
     MTLPixelFormat mMtlFormat = MTLPixelFormatInvalid;
 
     MTLTextureUsage mMtlUsage;
@@ -112,8 +104,9 @@ class Texture final : public TextureBase {
 
 class TextureView final : public TextureViewBase {
   public:
-    static ResultOrError<Ref<TextureView>> Create(TextureBase* texture,
-                                                  const TextureViewDescriptor* descriptor);
+    static ResultOrError<Ref<TextureView>> Create(
+        TextureBase* texture,
+        const UnpackedPtr<TextureViewDescriptor>& descriptor);
 
     id<MTLTexture> GetMTLTexture() const;
 
@@ -126,7 +119,7 @@ class TextureView final : public TextureViewBase {
 
   private:
     using TextureViewBase::TextureViewBase;
-    MaybeError Initialize(const TextureViewDescriptor* descriptor);
+    MaybeError Initialize(const UnpackedPtr<TextureViewDescriptor>& descriptor);
     void DestroyImpl() override;
     void SetLabelImpl() override;
 

@@ -52,12 +52,13 @@ class SamplerBase : public ApiObjectBase,
     SamplerBase(DeviceBase* device, const SamplerDescriptor* descriptor);
     ~SamplerBase() override;
 
-    static SamplerBase* MakeError(DeviceBase* device, const char* label);
+    static Ref<SamplerBase> MakeError(DeviceBase* device, const char* label);
 
     ObjectType GetType() const override;
 
     bool IsComparison() const;
     bool IsFiltering() const;
+    bool IsYCbCr() const;
 
     // Functions necessary for the unordered_set<SamplerBase*>-based cache.
     size_t ComputeContentHash() override;
@@ -85,6 +86,7 @@ class SamplerBase : public ApiObjectBase,
     float mLodMaxClamp;
     wgpu::CompareFunction mCompareFunction;
     uint16_t mMaxAnisotropy;
+    bool mIsYCbCr = false;
 };
 
 }  // namespace dawn::native
